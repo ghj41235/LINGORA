@@ -1,0 +1,16 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.Python
+
+# 运行时快照 / 自动备份（由程序生成，不纳入版本控制）
+luoxiaohei.luoxiaohei
+luoxiaohei.luoxiaohei.backup_*
+
+# 系统 / 编辑器
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/

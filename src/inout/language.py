@@ -261,9 +261,11 @@ def _extract_slot_values_from_keys(
     if root_list:
         slots[0] = lookup[root_list[0]][:35]
     elif bright_keys:
-        # 无明确根键 → 取最亮的
-        brightest = max(bright_keys, key=lambda k: k.brightness)
-        slots[0] = brightest.content[:35]
+        # 无明确根键 → 取最亮的可输出键（过滤 "词:" 等头/标记碎片，防泄漏）
+        valid = [k for k in bright_keys if _ok(k.id)]
+        if valid:
+            brightest = max(valid, key=lambda k: k.brightness)
+            slots[0] = brightest.content[:35]
 
     # slot_1+: 从根键的子键中提取
     if root_list:

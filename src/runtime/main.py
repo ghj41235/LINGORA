@@ -477,12 +477,29 @@ class LuoXiaoheiRuntime:
             global_matching[token] = count
 
         for pot in self.garden.get_active_pots():
+            # 语法盆的 OUTPUT/标记键不能当概念种子——它们由 conduct_grammar_match 驱动
+            if pot.id == self.garden.grammar_pot_id:
+                continue
             seeds = parse_user_input(pot.network, text, is_master=is_master, global_total=global_total, global_matching=global_matching)
             if seeds:
                 seed_counts[pot.id] = len(seeds)
                 seeds_by_pot[pot.id] = [(kid, b) for kid, b in seeds]
             for kid, brightness in seeds:
                 all_seeds.append((kid, brightness, pot.id))
+
+        # ── 种子爆炸截断：跨盆（每盆≤8 × N盆）会让传导被大量亮度2的种子稀释。
+        # 取全局最亮的 MAX_GLOBAL_SEEDS 个（亮度优先，历史激活次数破平局），
+        # 在时间键追加之前截断，确保时间键永不误伤。
+        MAX_GLOBAL_SEEDS = 16
+        if len(all_seeds) > MAX_GLOBAL_SEEDS:
+            scored = []
+            for kid, brightness, pid in all_seeds:
+                pot = self.garden.pots.get(pid)
+                key = pot.network.get_key(kid) if pot is not None else None
+                act = key.activation_count if key is not None else 0
+                scored.append((kid, brightness, pid, act))
+            scored.sort(key=lambda x: (x[1], x[3]), reverse=True)
+            all_seeds = [(kid, b, pid) for kid, b, pid, _ in scored[:MAX_GLOBAL_SEEDS]]
 
         # 时间键加入种子
         if period_id is not None and internal_pot_id:

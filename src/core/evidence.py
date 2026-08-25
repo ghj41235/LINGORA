@@ -67,6 +67,16 @@ def truth_expectation(frequency: float, confidence: float) -> float:
     return confidence * (frequency - 0.5) + 0.5
 
 
+def _clamp_freq(value: float) -> float:
+    """frequency 必须落在 [0.0, 1.0]，越界即夹回。"""
+    return min(1.0, max(0.0, value))
+
+
+def _clamp_conf(value: float) -> float:
+    """confidence 必须落在 [EVIDENCE_CONF_MIN, 0.99]，越界即夹回。"""
+    return min(0.99, max(EVIDENCE_CONF_MIN, value))
+
+
 def revise_evidence(
     old_freq: float,
     old_conf: float,
@@ -80,7 +90,7 @@ def revise_evidence(
     event_freq 取值：
     - 1.0 = 正面证据（这个知识被确认/用到了）
     - 0.0 = 负面证据（这个知识可能是错的）
-    - 0.5 = 中性（仅关联证据，不改变 frequency）
+    - 0.5 = 中性目标值（把 frequency 拉向 0.5；只有 frequency 已是 0.5 时才不变）
 
     公式：
     w1 = old_conf (旧证据权重)
@@ -88,13 +98,15 @@ def revise_evidence(
     new_freq = (old_freq * w1 + event_freq * w2) / (w1 + w2)
     """
     if old_conf + event_conf == 0.0:
-        return old_freq, old_conf
+        # 短路分支也必须统一夹紧：不能绕开 confidence 下限 / frequency 范围。
+        return _clamp_freq(old_freq), _clamp_conf(old_conf)
 
     new_freq = (old_freq * old_conf + event_freq * event_conf) / (old_conf + event_conf)
+    new_freq = _clamp_freq(new_freq)
     # confidence 用简化的增量模型（原版 NARS 用更复杂的公式）
     # 这里采用：每次证据事件增加 confidence，但趋近 1.0
     new_conf = old_conf + event_conf * (1.0 - old_conf)
-    new_conf = min(0.99, max(EVIDENCE_CONF_MIN, new_conf))
+    new_conf = _clamp_conf(new_conf)
 
     return new_freq, new_conf
 
@@ -173,8 +185,10 @@ def update_evidence_after_conduction(
                                 k.evidence_freq, k.evidence_conf,
                                 0.8, EVIDENCE_COACT_CONF,
                             )
+                            delta = abs(k.evidence_freq - new_f) + abs(k.evidence_conf - new_c)
                             k.evidence_freq = new_f
                             k.evidence_conf = new_c
+                            deltas[kid] = deltas.get(kid, 0.0) + delta
 
     # ── 4. 桥接触发键 → 跨域正面 ──
     for pot_id, cr in result.round3.items():
@@ -188,8 +202,10 @@ def update_evidence_after_conduction(
                     key.evidence_freq, key.evidence_conf,
                     0.7, EVIDENCE_BRIDGE_CONF,
                 )
+                delta = abs(key.evidence_freq - new_f) + abs(key.evidence_conf - new_c)
                 key.evidence_freq = new_f
                 key.evidence_conf = new_c
+                deltas[key_id] = deltas.get(key_id, 0.0) + delta
 
     # ── 5. 犹豫/方向切换 → 负面证据 ──
     for pot_id, cr in result.round1.items():
@@ -204,8 +220,10 @@ def update_evidence_after_conduction(
                         key.evidence_freq, key.evidence_conf,
                         0.0, EVIDENCE_HESITATION_NEG,
                     )
+                    delta = abs(key.evidence_freq - new_f) + abs(key.evidence_conf - new_c)
                     key.evidence_freq = new_f
                     key.evidence_conf = new_c
+                    deltas[key_id] = deltas.get(key_id, 0.0) + delta
         if cr.direction_changed:
             for key_id in cr.final_pattern:
                 key = pot.network.get_key(key_id)
@@ -214,8 +232,10 @@ def update_evidence_after_conduction(
                         key.evidence_freq, key.evidence_conf,
                         0.0, EVIDENCE_DIRECTION_NEG,
                     )
+                    delta = abs(key.evidence_freq - new_f) + abs(key.evidence_conf - new_c)
                     key.evidence_freq = new_f
                     key.evidence_conf = new_c
+                    deltas[key_id] = deltas.get(key_id, 0.0) + delta
 
     return deltas
 
@@ -240,6 +260,10 @@ def decay_all_evidence(garden: "Garden"):
             last_active = max(key.last_activated_at, key.created_at)
             idle = now - last_active
             if idle > EVIDENCE_DECAY_INTERVAL:
+                # 处女键（从未被赋予证据，conf=0.0）没有证据可衰减，跳过——
+                # 否则 max(EVIDENCE_CONF_MIN, 0.0 - 正数) 会把 confidence 反向抬升到 0.01。
+                if key.evidence_conf <= 0.0:
+                    continue
                 days = idle / 86400.0
                 key.evidence_conf = max(
                     EVIDENCE_CONF_MIN,

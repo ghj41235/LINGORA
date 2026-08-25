@@ -202,6 +202,15 @@ def compute_activation_signature(
     """
     from .primitives import Primitive
 
+    # 内部/机制原语不属于"语义格局"，不该进签名。否则 OUTPUT/WORD/SITUATION
+    # 等机制键会污染签名，导致语法匹配永远命中同一模式（"已读乱回"根因之一）。
+    # 用裸成员判断——Primitive(str, Enum) 的 str() 返回 "Primitive.OUTPUT" 而非
+    # "OUTPUT"，str() 化后反而漏掉；裸成员对枚举和纯字符串两种存储都成立。
+    _INTERNAL_PRIMITIVES = {
+        Primitive.WORD, Primitive.PATTERN, Primitive.RULE,
+        Primitive.CASE, Primitive.OUTPUT, Primitive.SITUATION,
+    }
+
     primitives_seen: set[str] = set()
     relations_seen: set[str] = set()
 
@@ -218,7 +227,7 @@ def compute_activation_signature(
             key = pot.network.get_key(kid)
             if key is None:
                 continue
-            if key.primitive:
+            if key.primitive and key.primitive not in _INTERNAL_PRIMITIVES:
                 primitives_seen.add(key.primitive)
 
         # 收集路径中的关系类型
@@ -239,7 +248,7 @@ def compute_activation_signature(
             key = pot.network.get_key(kid)
             if key is None:
                 continue
-            if key.primitive:
+            if key.primitive and key.primitive not in _INTERNAL_PRIMITIVES:
                 primitives_seen.add(key.primitive)
 
         for dst_id, (src_id, src_c, dst_c, wire_thickness, push) in cr.activation_paths.items():

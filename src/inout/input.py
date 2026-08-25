@@ -111,8 +111,14 @@ def parse_user_input(
         matched = False
 
         for key in all_keys:
-            # 第一层：精确匹配
-            if token in key.content:
+            # 第一层：匹配。多字 token 用子串匹配（"手机"命中"给手机充电用的"）；
+            # 单字 token 只做精确匹配（"你"不命中"你好"），否则单字功能词会
+            # 把大量无关键点爆、淹没真正相关的概念键。
+            if len(token) == 1:
+                hit = (key.content == token)
+            else:
+                hit = (token in key.content)
+            if hit:
                 seeds[key.id] = max(seeds.get(key.id, 0), base_brightness)
                 matched = True
                 continue  # 精确命中，不再检查同义词

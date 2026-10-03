@@ -342,6 +342,7 @@ class Garden:
         source: str = "user_input",
         temperature: float | None = None,
         workspace_preheat: dict[int, float] | None = None,
+        relation_boost: dict[str, float] | None = None,  # M4: 探照灯
     ) -> GardenConductionResult:
         """
         执行跨盆传导（三轮流程）。
@@ -377,6 +378,7 @@ class Garden:
                 source=source,
                 temperature=temperature,
                 workspace_preheat=workspace_preheat,
+                relation_boost=relation_boost,
             )
             pot_result = conduct(pot.network, request)
             result.round1[pot_id] = pot_result
@@ -389,7 +391,9 @@ class Garden:
 
         for pot_id, pot_result in result.round1.items():
             for key_id, brightness in pot_result.final_pattern.items():
-                if brightness != BRIDGE_SRC_BRIGHTNESS:
+                # M4: 峰值桥接——键「到过」满亮度即可触发桥，不必停在满亮度
+                fire = max(brightness, pot_result.peak_pattern.get(key_id, 0))
+                if fire < BRIDGE_SRC_BRIGHTNESS:
                     continue
                 bridges = self.find_bridges_for_key(key_id)
                 for bridge in bridges:

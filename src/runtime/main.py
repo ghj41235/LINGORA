@@ -66,7 +66,15 @@ from src.core.production import (
 )
 from src.knowledge.kb import KnowledgeBase, _infer_drawer_from_content
 from src.knowledge.desk import Desk
-from src.inout.input import parse_user_input, cleanup_short_term, get_short_term_count, _tokenize
+from src.inout.input import (
+    parse_user_input,
+    cleanup_short_term,
+    get_short_term_count,
+    _tokenize,
+    is_content_token,
+    materialize_orphan,
+)
+from src.core.seedplan import plan_seeds
 from src.inout.ingest import (
     IngestQueue,
     ingest_file,
@@ -476,6 +484,13 @@ class LuoXiaoheiRuntime:
                         count += 1
             global_matching[token] = count
 
+        # M2: 找到对话盆（孤种键落地处）
+        dialogue_pot = next(
+            (p for p in self.garden.pots.values()
+             if p.source_type == "dialogue" and not p.is_dormant),
+            None,
+        )
+
         for pot in self.garden.get_active_pots():
             # 语法盆的 OUTPUT/标记键不能当概念种子——它们由 conduct_grammar_match 驱动
             if pot.id == self.garden.grammar_pot_id:
@@ -512,6 +527,35 @@ class LuoXiaoheiRuntime:
                 if internal_pot_id not in seeds_by_pot:
                     seeds_by_pot[internal_pot_id] = []
                 seeds_by_pot[internal_pot_id].append((period_id, time_key.brightness))
+
+        # ── M2: 孤种键落地（没见过、零证据的实义词）──
+        for token in tokens:
+            if (is_content_token(token)
+                    and global_matching.get(token, 0) == 0
+                    and dialogue_pot is not None):
+                orphan = materialize_orphan(dialogue_pot.network, token)
+                if orphan and not any(kid == orphan.id for kid, _, _ in all_seeds):
+                    all_seeds.append((orphan.id, 1, dialogue_pot.id))
+                    seeds_by_pot.setdefault(dialogue_pot.id, []).append((orphan.id, 1))
+
+        # ── M3: 指代/疑问机制键 ──
+        mechanism_seeds, spotlight = plan_seeds(self.garden, tokens)
+        for kid, b, pid in mechanism_seeds:
+            all_seeds.append((kid, b, pid))
+            seeds_by_pot.setdefault(pid, []).append((kid, b))
+
+        # 本轮种子全集（赢家抽取时排除）
+        turn_seed_ids = {kid for kid, _, _ in all_seeds}
+
+        # 收集本轮所有孤种键（含上一轮已落地的，靠 is_orphan 持久标记，修正 C）
+        orphan_keys: list = []
+        _seen_orphan: set[int] = set()
+        for kid, _, pid in all_seeds:
+            pot = self.garden.pots.get(pid)
+            key = pot.network.get_key(kid) if pot is not None else None
+            if key is not None and key.is_orphan and kid not in _seen_orphan:
+                _seen_orphan.add(kid)
+                orphan_keys.append(key)
 
         if not all_seeds:
             now = time.time()
@@ -635,6 +679,7 @@ class LuoXiaoheiRuntime:
             source="master_input" if is_master else "user_input",
             temperature=temperature,
             workspace_preheat=preheat,
+            relation_boost=spotlight,
         )
 
         # ── v1.0 HTM: 预测周期（时序记忆 + 预测状态机 + 注意力模式）──
@@ -663,13 +708,15 @@ class LuoXiaoheiRuntime:
                     cr.is_hesitating = True
                     cr.hesitation_detail = detail
 
-        # 5. 生成回复（传入种子计数 + 产生式调控）
+        # 5. 生成回复（传入种子计数 + 产生式调控 + 本轮种子/孤种键）
         response = self.language.generate_from_garden(
             self.garden,
             self.knowledge_base,
             result,
             seed_counts=seed_counts,
             output_regulation=output_regulation,
+            turn_seed_ids=turn_seed_ids,
+            orphan_keys=orphan_keys,
         )
 
         # ── v1.0: 语法键存储（记录本次格局→输出的映射）──

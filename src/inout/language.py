@@ -123,6 +123,23 @@ TEMPLATE_PROACTIVE = [
 ]
 
 
+# ── 寒暄 / 告别（MVP-1：跳过花园，直接回应） ─
+
+TEMPLATE_GREETING = [
+    "师父好呀。",
+    "喵，师父！",
+    "师父来啦！",
+    "师父好~",
+]
+
+TEMPLATE_FAREWELL = [
+    "师父再见。",
+    "喵，师父再见~",
+    "师父拜拜。",
+    "嗯，师父再见。",
+]
+
+
 # ═══════════════════════════════════════════════
 # 电线粗细 → 语气副词映射
 # ═══════════════════════════════════════════════
@@ -630,6 +647,8 @@ class LanguageModule:
         result,
         seed_counts: dict | None = None,
         output_regulation=None,  # Phase 6: OutputRegulation | None
+        turn_seed_ids: set[int] | None = None,  # M5: 本轮种子键（赢家抽取时排除）
+        orphan_keys: list | None = None,         # M5: 本轮孤种键（沉默时说"还不懂"）
     ) -> str:
         """
         从花园跨盆传导结果生成回复——多盆加权参与版。
@@ -645,6 +664,13 @@ class LanguageModule:
         - Phase 6: output_regulation 调控句子数和语气
         """
         seed_counts = seed_counts or {}
+
+        # ── M5: 赢家抽取门 ──
+        # 传导没带出任何「非种子、可输出」的键 = 没有结构可传导。
+        # 此时直接说"我还不太懂"（孤种键）或困惑，绝不落入语法盆乱选。
+        winners = self._extract_winners(result, turn_seed_ids, garden)
+        if not winners:
+            return self._add_personality(self._speak_silence(orphan_keys))
 
         # ── 犹豫检测（任一盆犹豫 → 全局犹豫）──
         for cr in result.round1.values():
@@ -762,6 +788,86 @@ class LanguageModule:
         if best_cr is not None:
             content = self._maybe_add_time_context(content, best_cr)
         return self._add_personality(content, tone=tone)
+
+    # ── M5: 赢家抽取 + 沉默 ──────────────────────────
+
+    def _extract_winners(self, result, turn_seed_ids, garden) -> list:
+        """
+        赢家 = 传导结束后仍亮着、且不是本轮种子的可输出键。
+
+        排除：本轮种子（turn_seed_ids）、internal 源、header 式内容、休眠键。
+        遍历 round1 + round3 的 final_pattern（brightness >= 1）。
+        排序：亮度 → 离内容种子的路径跳数 → NARS 期望值。
+        """
+        turn_seed_ids = turn_seed_ids or set()
+        candidates: list[tuple] = []  # [(key, pot_id, cr, brightness)]
+        seen: set[int] = set()
+
+        for round_name in ('round1', 'round3'):
+            round_data = getattr(result, round_name, {})
+            for pot_id, cr in round_data.items():
+                pot = garden.pots.get(pot_id)
+                if pot is None:
+                    continue
+                for kid, brightness in cr.final_pattern.items():
+                    if brightness < 1 or kid in turn_seed_ids or kid in seen:
+                        continue
+                    key = pot.network.get_key(kid)
+                    if key is None or key.is_dormant:
+                        continue
+                    if key.source == "internal":
+                        continue
+                    if _is_header_like(key.content):
+                        continue
+                    seen.add(kid)
+                    candidates.append((key, pot_id, cr, brightness))
+
+        if not candidates:
+            return []
+
+        from src.core.evidence import truth_expectation
+
+        def _depth(cr, kid: int) -> int:
+            # 沿 activation_paths 反向走回种子，数跳数；走不到种子给一个大值。
+            paths = cr.activation_paths
+            depth = 0
+            cur = kid
+            guard = 0
+            while cur in paths and guard < 32:
+                src_id = paths[cur][0]
+                if src_id in turn_seed_ids:
+                    return depth + 1
+                cur = src_id
+                depth += 1
+                guard += 1
+            return 999
+
+        def _sort_key(item) -> tuple:
+            key, _pot_id, cr, brightness = item
+            exp = truth_expectation(key.evidence_freq, key.evidence_conf)
+            return (-brightness, _depth(cr, key.id), -exp)
+
+        candidates.sort(key=_sort_key)
+        return [k for k, _p, _c, _b in candidates]
+
+    def _speak_silence(self, orphan_keys) -> str:
+        """
+        赢家为空 = 传导没带来新东西 = 没有结构可传导。
+        取最亮的孤种键名字：topic = content.removeprefix("词:")。
+        有 topic → "我还不太懂{topic}。"；无 → 困惑模板。
+        """
+        if not orphan_keys:
+            return random.choice(TEMPLATE_CONFUSED)
+        best = None
+        for k in orphan_keys:
+            if best is None or k.brightness > best.brightness:
+                best = k
+        if best is None:
+            return random.choice(TEMPLATE_CONFUSED)
+        topic = (best.content or "").removeprefix("词:").removeprefix("词：")
+        if not topic:
+            return random.choice(TEMPLATE_CONFUSED)
+        return f"我还不太懂{topic}。"
 
     # ── 罗小黑性格修饰 ────────────────────────
 

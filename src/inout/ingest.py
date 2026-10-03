@@ -478,7 +478,29 @@ def ingest_document_to_garden_v1(
     if all_new_keys:
         garden.auto_create_bridges_for_new_keys(all_new_keys, target_pot.id)
 
+    # 8. M3: 自我介绍类新键连 SELF 桥（指代消解够到自我介绍）
+    wire_self_reference(garden, all_new_keys, target_pot.id)
+
     return all_new_keys, target_pot.id, is_new_pot, concept_clusters
+
+
+def wire_self_reference(garden: "Garden", new_keys: list["Key"], pot_id: str):
+    """
+    M3 配套：把「我是…」类的新键连到 SELF 机制键的桥（thickness 0.6）。
+    让「你是谁」的 SELF 种子能跨盆够到自我介绍键。
+    """
+    if not new_keys:
+        return
+    from src.core.seedplan import ensure_mechanism_keys, SELF_CONTENT_RULE
+    mech = ensure_mechanism_keys(garden)
+    self_kid = mech.get("SELF")
+    if self_kid is None:
+        return
+    for k in new_keys:
+        if k.primitive in ("WORD", "OUTPUT", "SITUATION"):
+            continue
+        if SELF_CONTENT_RULE(k.content):
+            garden.create_bridge(self_kid, garden.internal_pot_id, k.id, pot_id, thickness=0.6)
 
 
 def ingest_file_to_garden_v1(

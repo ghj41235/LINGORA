@@ -209,6 +209,9 @@ def compute_activation_signature(
     _INTERNAL_PRIMITIVES = {
         Primitive.WORD, Primitive.PATTERN, Primitive.RULE,
         Primitive.CASE, Primitive.OUTPUT, Primitive.SITUATION,
+        # M3 机制键（seedplan.py 用裸字符串 primitive）：SELF/MASTER/QUEST
+        # 不进签名，否则「你是谁」「手机是什么」共享 QUEST 元素，降低语法匹配区分度。
+        "SELF", "MASTER", "QUEST",
     }
 
     primitives_seen: set[str] = set()

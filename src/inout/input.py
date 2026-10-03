@@ -43,6 +43,59 @@ for _canon, _syns in SYNONYM_MAP.items():
         _synonym_to_canonical[_s] = _canon
 
 
+# ── 功能词 / 应答词（M1：概念提及不做这些词的子串匹配）──
+
+_FUNCTION_WORDS = {
+    "你", "我", "他", "她", "它", "这", "那", "的", "了", "吗", "呢", "吧",
+    "是", "有", "在", "个", "们", "和", "跟", "就", "都", "也", "很", "还",
+    "什么", "啥", "谁", "为什么", "怎么", "为啥", "请问", "啊", "呀", "哦", "嗯",
+    "一个", "一种", "东西", "时候", "这样", "那样",
+}
+_ACK_WORDS = {"好", "行", "对", "可以", "好的", "没事", "知道了", "辛苦", "收到"}
+_STOPWORDS = _FUNCTION_WORDS | _ACK_WORDS
+
+
+def is_content_token(token: str) -> bool:
+    """token 是否实义词（非功能词 / 应答词）。"""
+    return token not in _STOPWORDS
+
+
+def _synonym_words(token: str) -> set[str]:
+    """token 及其同义词的所有词形（含标准词）。"""
+    words = {token}
+    if token in SYNONYM_MAP:
+        words.update(SYNONYM_MAP[token])
+    canon = _synonym_to_canonical.get(token)
+    if canon:
+        words.add(canon)
+        words.update(SYNONYM_MAP.get(canon, []))
+    return words
+
+
+def _token_mentions(token: str, content: str) -> bool:
+    """token 是否「提及」概念键内容。功能词 → False（修正 B：按功能词不按长度）。"""
+    if not is_content_token(token):
+        return False
+    return token in content
+
+
+def materialize_orphan(network: KeyNetwork, token: str) -> Key | None:
+    """
+    把没见过（零证据）的词落成孤种键（M2）。
+    精确匹配，不用 find_similar_key（避免 jieba 切「词:英语」的坑）。
+    """
+    for key in network.all_keys():
+        if not key.is_dormant and key.content == f"词:{token}":
+            key.is_orphan = True
+            key.evidence_conf = 0.0
+            return key
+    k = network.create_key(content=f"词:{token}", source="master")
+    k.primitive = "WORD"
+    k.evidence_conf = 0.0
+    k.is_orphan = True
+    return k
+
+
 # ── 短期记忆 ──────────────────────────────────
 
 # 短期记忆池：{content_hash: (fragment_text, created_at)}
@@ -100,58 +153,48 @@ def parse_user_input(
         # 匹配 0 键 → 1.0，匹配 total/10 键 → 0.53，匹配 total/2 键 → 0.11
         token_specificity[token] = effective_total / (effective_total + matching * 9)
 
-    # ── 分层匹配 ──
+    # ── 分层匹配（M1：词键优先，命中词键则跳过概念提及）──
     seeds: dict[int, int] = {}  # key_id → max brightness
 
     for token in tokens:
         specificity = token_specificity.get(token, 0.5)
         # base: 0（到处都有）→ 2（独一无二）
         base_brightness = round(2 * specificity)
+        # 师父信任：词键亮度 +1（上限 2）。提及种子不享受此特权。
+        word_brightness = min(base_brightness + (1 if is_master else 0), 2)
+        word_forms = {f"词:{w}" for w in _synonym_words(token)}
 
-        matched = False
-
+        has_word_key = False
         for key in all_keys:
-            # 第一层：匹配。多字 token 用子串匹配（"手机"命中"给手机充电用的"）；
-            # 单字 token 只做精确匹配（"你"不命中"你好"），否则单字功能词会
-            # 把大量无关键点爆、淹没真正相关的概念键。
-            if len(token) == 1:
-                hit = (key.content == token)
-            else:
-                hit = (token in key.content)
-            if hit:
-                seeds[key.id] = max(seeds.get(key.id, 0), base_brightness)
-                matched = True
-                continue  # 精确命中，不再检查同义词
+            if key.primitive != "WORD":
+                continue
+            if key.content == f"词:{token}":
+                # 第一层：词键精确命中。孤种键亮度恒 1（弱键）。
+                b = 1 if key.is_orphan else word_brightness
+                seeds[key.id] = max(seeds.get(key.id, 0), b)
+                has_word_key = True
+            elif key.content in word_forms:
+                # 第二层：词键同义词命中（低 1 级，至少 1）。
+                b = 1 if key.is_orphan else max(1, word_brightness - 1)
+                seeds[key.id] = max(seeds.get(key.id, 0), b)
+                has_word_key = True
 
-            # 第二层：同义词匹配
-            if token in SYNONYM_MAP:
-                canon = token  # token 本身就是标准词
-            else:
-                canon = _synonym_to_canonical.get(token)  # token 是同义词
+        matched_any = has_word_key
 
-            if canon:
-                all_words = [canon] + SYNONYM_MAP.get(canon, [])
-                if any(w in key.content for w in all_words):
-                    # 同义词比精确匹配低 1 级（至少 1）
-                    syn_brightness = max(1, base_brightness - 1)
-                    seeds[key.id] = max(seeds.get(key.id, 0), syn_brightness)
-                    matched = True
+        # 第三层：概念提及（修正 A：有词键就整层跳过；修正 B：按功能词不按长度）。
+        # 提及种子亮度恒 1，永不升级——只能靠传导被进一步推亮。
+        if not has_word_key:
+            for key in all_keys:
+                if key.primitive in ("WORD", ""):
                     continue
+                if _token_mentions(token, key.content):
+                    if key.id not in seeds:
+                        seeds[key.id] = 1
+                    matched_any = True
 
-            # 第三层：关联匹配（部分子串）
-            if len(token) >= 2:
-                char_hits = sum(1 for ch in token if ch in key.content)
-                if char_hits >= len(token) * 0.6:
-                    pass  # 不直接设亮度，靠传导自然激发
-
-        # 第四层：无匹配 → 短期记忆
-        if not matched and len(token) >= 2:
+        # 第四层：无任何命中 → 短期记忆（实义词才记）
+        if not matched_any and is_content_token(token):
             _add_short_term(token)
-
-    # 师父特权：所有种子亮度 +1（上限 2）
-    if is_master:
-        for kid in list(seeds.keys()):
-            seeds[kid] = min(seeds[kid] + 1, 2)
 
     # ── 种子数控制：太多 → 取最相关的 ──
     MAX_SEEDS = 8
@@ -167,7 +210,9 @@ def parse_user_input(
         seeds = {kid: b for kid, b, _ in scored[:MAX_SEEDS]}
 
     # ── 兜底：零种子时用字符 bigram 模糊匹配 ──
-    if not seeds and len(text) >= 2:
+    # 只对含实义词的输入兜底；纯功能词/指代/疑问（"你是谁"这类）交给 M3 机制键，
+    # 否则"是/你"等共享字会把"手机是…"这类定义键误拉进种子（污染指代消解）。
+    if not seeds and len(text) >= 2 and any(is_content_token(t) for t in tokens):
         best_matches = []
         for key in all_keys:
             sim = _text_overlap_score(text, key.content)

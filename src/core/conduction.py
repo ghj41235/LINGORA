@@ -53,6 +53,7 @@ class ConductionRequest:
     source: str = "user_input"        # "user_input" | "master_input" | "internal"
     temperature: float = 0.5          # v1.0: 全局温度 (0.0–1.0)，控制搜索广度
     workspace_preheat: dict[int, float] | None = None  # v1.0: {key_id: threshold_reduction}
+    relation_boost: dict[str, float] | None = None  # M4: 探照灯，按 relation_type 调导电率
 
 
 @dataclass
@@ -73,6 +74,8 @@ class ConductionResult:
     # 传导路径：记录每个被推亮的键的"来源"
     # {dst_id: (src_id, src_content, dst_content, wire_thickness, push_amount)}
     activation_paths: dict[int, tuple[int, str, str, float, float]] = field(default_factory=dict)
+    # M4: 峰值格局——每键本轮到过的最高亮度（"闪过 2 就算喊过一嗓子"）
+    peak_pattern: dict[int, int] = field(default_factory=dict)
 
 
 # ── 传导主函数 ─────────────────────────────────
@@ -101,6 +104,10 @@ def conduct(network: KeyNetwork, request: ConductionRequest) -> ConductionResult
     # ── v1.0: 工作空间预热 ──────────────────────
     preheat = request.workspace_preheat or {}
 
+    # ── M4: 探照灯 + 峰值 ──────────────────────
+    rel_boost = request.relation_boost or {}
+    peaks: dict[int, int] = {}
+
     # ── 1. 初始化种子键 ────────────────────────
     fresh_keys: set[int] = set()
     for key_id, init_brightness in request.seed_keys:
@@ -108,6 +115,7 @@ def conduct(network: KeyNetwork, request: ConductionRequest) -> ConductionResult
         if key is None:
             continue
         key.activate(init_brightness)
+        peaks[key_id] = max(peaks.get(key_id, 0), init_brightness)
         fresh_keys.add(key_id)
 
     # ── 2. 外层：思考轮次循环 ──────────────────
@@ -115,10 +123,14 @@ def conduct(network: KeyNetwork, request: ConductionRequest) -> ConductionResult
         # 2a. 内层：传导迭代（扩散→衰减→稳定）
         inner_iters, inner_amps, cycle_paths = _run_conduction_pass(
             network, fresh_keys, request.max_hops, start_time,
-            request.temperature, preheat,
+            request.temperature, preheat, rel_boost,
         )
         total_iterations += inner_iters
         all_amp_history.extend(inner_amps)
+
+        # M4: 记峰值（每键本轮到过的最高亮度）
+        for k in network.get_bright_keys():
+            peaks[k.id] = max(peaks.get(k.id, 0), k.brightness)
 
         # 合并本轮路径（后来的不覆盖先来的——第一批路径最贴近原始种子）
         for dst_id, path_info in cycle_paths.items():
@@ -139,7 +151,7 @@ def conduct(network: KeyNetwork, request: ConductionRequest) -> ConductionResult
                 return _build_cycle_result(
                     network, total_iterations, elapsed, True, False,
                     all_amp_history, cycle + 1, cycle_patterns, False,
-                    all_paths,
+                    all_paths, peaks,
                 )
 
             if delta > DIRECTION_CHANGE:
@@ -153,7 +165,7 @@ def conduct(network: KeyNetwork, request: ConductionRequest) -> ConductionResult
             return _build_cycle_result(
                 network, total_iterations, elapsed, False, False,
                 all_amp_history, cycle + 1, cycle_patterns, direction_changed,
-                all_paths,
+                all_paths, peaks,
             )
 
         # 2e. 重播种：本轮最亮的键成为下一轮的种子
@@ -171,7 +183,7 @@ def conduct(network: KeyNetwork, request: ConductionRequest) -> ConductionResult
         network, total_iterations, elapsed,
         not direction_changed, False,
         all_amp_history, min(cycle + 1, MAX_CYCLES), cycle_patterns,
-        direction_changed, all_paths,
+        direction_changed, all_paths, peaks,
     )
 
 
@@ -184,6 +196,7 @@ def _run_conduction_pass(
     start_time: float,
     temperature: float = 0.5,
     preheat: dict[int, float] | None = None,
+    rel_boost: dict[str, float] | None = None,
 ) -> tuple[int, list[float], dict[int, tuple[int, str, str, float, float]]]:
     """
     运行一次传导轮次（内层循环）。
@@ -209,9 +222,9 @@ def _run_conduction_pass(
         bright.sort(key=lambda k: k.brightness, reverse=True)
         focus_ids = {k.id for k in bright[:FOCUS_TOP_K]}
 
-        # 扩散（焦点加权 + 温度 + 滑移）→ 收集激活路径
+        # 扩散（焦点加权 + 温度 + 滑移 + 探照灯）→ 收集激活路径
         newly_activated, paths = _spread_activation(
-            network, focus_ids, temperature, preheat,
+            network, focus_ids, temperature, preheat, rel_boost,
         )
 
         # 合并本轮路径（新激活的键才记录路径）
@@ -281,6 +294,7 @@ def _spread_activation(
     focus_ids: set[int] | None = None,
     temperature: float = 0.5,
     preheat: dict[int, float] | None = None,
+    rel_boost: dict[str, float] | None = None,
 ) -> tuple[set[int], dict[int, tuple[int, str, str, float, float]]]:
     """
     每个亮键向邻居扩散推力。
@@ -351,7 +365,12 @@ def _spread_activation(
                 from .temporal import compute_context_boost
                 ctx_boost = compute_context_boost(wire, src.id)
 
-            push = src.brightness * thickness * eff_decay * weight * slip_discount * (1.0 + ctx_boost)
+            # ── M4: 探照灯（按电线关系类型调导电率）──
+            rel_boost_mult = 1.0
+            if wire is not None and rel_boost:
+                rel_boost_mult = rel_boost.get(wire.relation_type, 1.0)
+
+            push = src.brightness * thickness * eff_decay * weight * slip_discount * (1.0 + ctx_boost) * rel_boost_mult
             accumulated[neighbor_id] = accumulated.get(neighbor_id, 0.0) + push
 
             # 追踪贡献最大的源键（比较折扣后的 push）
@@ -440,6 +459,7 @@ def _build_cycle_result(
     cycle_patterns: list[dict],
     direction_changed: bool,
     activation_paths: dict[int, tuple[int, str, str, float, float]] | None = None,
+    peak_pattern: dict[int, int] | None = None,
 ) -> ConductionResult:
     """构建含循环信息和传导路径的结果。"""
     top = network.get_top_k_keys(10)
@@ -455,4 +475,5 @@ def _build_cycle_result(
         cycle_patterns=cycle_patterns,
         direction_changed=direction_changed,
         activation_paths=activation_paths or {},
+        peak_pattern=peak_pattern or _snapshot_brightness(network),
     )

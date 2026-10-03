@@ -49,6 +49,9 @@ class Key:
     # 信任
     source: str = "external"   # "master" | "external" | "internal"
 
+    # 孤种键（M2）：零证据、只靠"师父说过这个词"存在的弱键
+    is_orphan: bool = False
+
     # 残留：对话结束后不立即归零，保持微弱激活一段时间
     residual_until: float = 0.0  # 此时间戳之前 decay 不低于 1
 
@@ -127,6 +130,7 @@ class Key:
             "dormant_since": self.dormant_since,
             "original_content": self.original_content,
             "source": self.source,
+            "is_orphan": self.is_orphan,
             "residual_until": self.residual_until,
             "activation_history": self.activation_history,
             "evidence_freq": self.evidence_freq,
@@ -142,6 +146,7 @@ class Key:
         d.setdefault("evidence_freq", 1.0)
         d.setdefault("evidence_conf", 0.0)
         d.setdefault("prediction_state", 0)
+        d.setdefault("is_orphan", False)
         return cls(**d)
 
     def __repr__(self) -> str:

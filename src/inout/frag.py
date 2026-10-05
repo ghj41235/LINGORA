@@ -321,3 +321,137 @@ def _create_key(
         key.primitive = prim_str
         key.source = "external"
         return key
+
+
+# ═══════════════════════════════════════════════
+# 备课查重（脑外，纯符号——不用向量、不碰禁区）
+# ═══════════════════════════════════════════════
+
+def _term_similarity(a: str, b: str) -> float:
+    """
+    词项相似度（离散重叠，不用向量）。
+
+    - 精确相等 → 1.0
+    - 单字词（"猫"）不相等 → 0.0（"猫"≠"猫头鹰"，不能靠包含关系误判）
+    - 多字词：包含关系（"动物"⊂"哺乳动物"）→ 0.9
+    - 否则 char bigram Jaccard / containment 取大
+    """
+    a, b = a.strip(), b.strip()
+    if not a or not b:
+        return 0.0
+    if a == b:
+        return 1.0
+    if len(a) <= 1 or len(b) <= 1:
+        return 0.0
+    if a in b or b in a:
+        return 0.9
+    set_a = set(a[i:i + 2] for i in range(len(a) - 1))
+    set_b = set(b[i:i + 2] for i in range(len(b) - 1))
+    if not set_a or not set_b:
+        return 0.0
+    inter = len(set_a & set_b)
+    union = len(set_a | set_b)
+    jaccard = inter / union
+    containment = inter / min(len(set_a), len(set_b))
+    return max(jaccard, containment)
+
+
+def _relation_primitive(relation: str) -> Primitive | None:
+    """关系词 → 原语（同原语 = 同义关系，用于近重复判定）。"""
+    spec = RELATION_WORD_MAP.get(relation)
+    return spec[0] if spec else None
+
+
+@dataclass
+class DupReport:
+    """备课查重报告。"""
+    kept: list["FragTriple"] = None                # 保留的新三元组（非重复）
+    exact_dups: list[tuple["FragTriple", "FragTriple"]] = None  # (新, 已有) 精确重复
+    near_dups: list[tuple["FragTriple", "FragTriple", float]] = None  # (新, 已有, 相似度)
+    redundant: list[tuple[str, str, int]] = None   # (主体, 客体, 出现次数≥3) 冗余提示
+
+    def __post_init__(self):
+        self.kept = self.kept or []
+        self.exact_dups = self.exact_dups or []
+        self.near_dups = self.near_dups or []
+        self.redundant = self.redundant or []
+
+    @property
+    def is_clean(self) -> bool:
+        return not self.exact_dups and not self.near_dups and not self.redundant
+
+
+def load_triples_from_files(paths: list[str]) -> list["FragTriple"]:
+    """
+    读多个 .frag 文件，返回全部三元组（含来源文件路径，存在 FragTriple 不追踪——
+    备课查重只需内容，不需要知道重复来自哪个文件）。
+    """
+    triples: list["FragTriple"] = []
+    for path in paths:
+        try:
+            with open(path, "r", encoding="utf-8") as f:
+                text = f.read()
+        except OSError:
+            continue
+        triples.extend(parse_frag(text))
+    return triples
+
+
+def deduplicate_triples(
+    new_triples: list["FragTriple"],
+    existing_triples: list["FragTriple"],
+    near_threshold: float = 0.85,
+) -> "DupReport":
+    """
+    备课查重：去掉与已有 .frag 重复/近重复的三元组。
+
+    判定（离散重叠，不用向量）：
+    - 精确重复：主体/关系词/客体 三项全同。
+    - 近重复：主体、客体相似度都 ≥ near_threshold，且关系词同原语（同义）。
+    - 冗余上限：同一 (主体, 客体) 出现 ≥3 次 → 提示合并（重点概念允许 2~3 次强化）。
+
+    返回 DupReport；kept 是可直接入网的新三元组。
+    """
+    report = DupReport()
+    seen: set[tuple[str, str, str]] = set()
+    for t in existing_triples:
+        seen.add((t.subject, t.relation, t.object))
+
+    # (主体, 客体) 出现次数，用于冗余上限
+    so_count: dict[tuple[str, str], int] = {}
+    for t in existing_triples:
+        so_count[(t.subject, t.object)] = so_count.get((t.subject, t.object), 0) + 1
+
+    for t in new_triples:
+        # ── 精确重复 ──
+        if (t.subject, t.relation, t.object) in seen:
+            report.exact_dups.append((t, t))
+            continue
+
+        # ── 近重复 ──
+        near_hit: "FragTriple | None" = None
+        near_score = 0.0
+        for e in existing_triples:
+            if _relation_primitive(e.relation) != _relation_primitive(t.relation):
+                continue  # 关系不同义，不判近重复
+            subj_sim = _term_similarity(t.subject, e.subject)
+            obj_sim = _term_similarity(t.object, e.object)
+            if subj_sim >= near_threshold and obj_sim >= near_threshold:
+                score = min(subj_sim, obj_sim)
+                if score > near_score:
+                    near_score = score
+                    near_hit = e
+        if near_hit is not None:
+            report.near_dups.append((t, near_hit, near_score))
+            continue
+
+        # ── 通过：保留 + 计数 ──
+        report.kept.append(t)
+        so_count[(t.subject, t.object)] = so_count.get((t.subject, t.object), 0) + 1
+
+    # ── 冗余上限（≥3 次）──
+    for (subj, obj), count in so_count.items():
+        if count >= 3:
+            report.redundant.append((subj, obj, count))
+
+    return report

@@ -469,6 +469,10 @@ class Garden:
         for pot in self.pots.values():
             if pot.is_dormant:
                 continue
+            if pot.id == self.internal_pot_id:
+                continue  # 内部机制盆（时间键/SELF/QUEST）不接收概念键
+            if pot.id == getattr(self, 'grammar_pot_id', ""):
+                continue  # 语法盆（OUTPUT/标记键）不接收概念键
             sim = cosine_similarity(doc_sig, pot.topic_signature or [0.0] * POT_SIGNATURE_DIM)
             if sim > best_sim:
                 best_sim = sim

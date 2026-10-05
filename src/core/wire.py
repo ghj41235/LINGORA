@@ -41,6 +41,19 @@ SLIPPAGE_DISTANCE: dict[str, int] = {
     "opposite-of": 2,
 }
 
+# ── 传导极性（三进制）：关系类型 → 激活/抑制/无 ──
+# +1 激活（相似/部分/因果/等同），-1 抑制（对立），0 无关联。
+# 极性是关系类型的固定属性，不是随机数、不是阈值——
+# 与"亮度"（动态连续值）和"厚度"（力度）是两回事。
+# Wire 不加 polarity 字段：极性由 relation_type 查此表派生（避免冗余状态）。
+RELATION_POLARITY: dict[str, int] = {
+    "same-as": +1,
+    "similar-to": +1,
+    "part-of": +1,
+    "cause-of": +1,
+    "opposite-of": -1,
+}
+
 
 @dataclass
 class Wire:

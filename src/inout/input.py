@@ -52,7 +52,18 @@ _FUNCTION_WORDS = {
     "一个", "一种", "东西", "时候", "这样", "那样",
 }
 _ACK_WORDS = {"好", "行", "对", "可以", "好的", "没事", "知道了", "辛苦", "收到"}
-_STOPWORDS = _FUNCTION_WORDS | _ACK_WORDS
+
+# ── .frag 关系词（修正 C：关系词是三元组的连接器，不是独立概念）──
+# 单字关系词（能/会/像/导致…）在概念提及层会 substring 误命中原语键，
+# 把「手机能打电话」这类 CAN 键抢成种子（turn_seed_ids），挤掉真正的赢家。
+# 情感关系词（喜欢/爱/讨厌/怕）保留为实义——它们是可独立提问的焦点。
+_RELATION_WORDS = {
+    "能", "会", "就是", "叫做", "是一种", "属于", "不是",
+    "拥有", "具有", "没有", "缺少",
+    "连接", "连着", "相连", "像", "类似",
+    "导致", "引起",
+}
+_STOPWORDS = _FUNCTION_WORDS | _ACK_WORDS | _RELATION_WORDS
 
 
 def is_content_token(token: str) -> bool:

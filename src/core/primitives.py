@@ -49,6 +49,7 @@ class Primitive(str, Enum):
     SAY = "SAY"        # 用嘴发出有意义的语言
     MAKE = "MAKE"      # 用手或工具创造/改变一个东西
     USE = "USE"        # 用某个工具来完成一个动作
+    CAN = "CAN"        # 有能力做某个动作（世界知识：X能Y）
 
     # ── 关系原语（两个事物之间的关系） ──
     BIGGER = "BIGGER"    # A比B在某个维度上更大
@@ -61,6 +62,7 @@ class Primitive(str, Enum):
     LIKE = "LIKE"        # A对B有好感
     DISLIKE = "DISLIKE"  # A对B有厌恶
     SAME = "SAME"        # A和B没有差别
+    CONNECT = "CONNECT"  # A和B相连/连接
 
     # ── 数量原语（数量的表达） ──
     MANY = "MANY"      # 数量多
@@ -100,6 +102,7 @@ PRIMITIVE_SLOTS: dict[Primitive, tuple[str, ...]] = {
     Primitive.SAY:  ("speaker", "content"),
     Primitive.MAKE: ("maker", "product", "tool"),
     Primitive.USE:  ("user", "tool", "purpose"),
+    Primitive.CAN:  ("agent", "action"),
 
     # 关系原语
     Primitive.BIGGER:   ("a", "b", "dimension"),
@@ -112,6 +115,7 @@ PRIMITIVE_SLOTS: dict[Primitive, tuple[str, ...]] = {
     Primitive.LIKE:     ("liker", "liked"),
     Primitive.DISLIKE:  ("disliker", "disliked"),
     Primitive.SAME:     ("a", "b"),
+    Primitive.CONNECT:  ("a", "b"),
 
     # 数量原语（无槽位——内在属性）
     Primitive.MANY: (),
@@ -136,10 +140,11 @@ PRIMITIVE_CATEGORIES: dict[str, list[Primitive]] = {
              Primitive.TASTE, Primitive.TOUCH],
     "存在": [Primitive.IS, Primitive.NOT, Primitive.HAVE, Primitive.NOT_HAVE],
     "行动": [Primitive.MOVE, Primitive.GIVE, Primitive.EAT, Primitive.SAY,
-             Primitive.MAKE, Primitive.USE],
+             Primitive.MAKE, Primitive.USE, Primitive.CAN],
     "关系": [Primitive.BIGGER, Primitive.SMALLER, Primitive.INSIDE,
              Primitive.OUTSIDE, Primitive.BEFORE, Primitive.AFTER,
-             Primitive.CAUSE, Primitive.LIKE, Primitive.DISLIKE, Primitive.SAME],
+             Primitive.CAUSE, Primitive.LIKE, Primitive.DISLIKE, Primitive.SAME,
+             Primitive.CONNECT],
     "数量": [Primitive.MANY, Primitive.FEW],
     "特殊": [Primitive.WORD, Primitive.PATTERN, Primitive.RULE, Primitive.CASE,
              Primitive.OUTPUT, Primitive.SITUATION],

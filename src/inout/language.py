@@ -364,6 +364,12 @@ def _try_grammar_generation(
     if pattern is None or not pattern.sentence_structures:
         return None
 
+    # 困惑兜底（空签名种子模式）不覆盖传导路径的真实内容——
+    # 有可输出赢家时，语法未命中应降级到 _build_from_paths 直接说概念内容，
+    # 困惑留给 generate_from_garden 的赢家门/城市门，不在这里抢输出。
+    if not pattern.activation_signature:
+        return None
+
     # 3. 槽位填充（无槽位模板如困惑表达、主动搭话 → 跳过提取）
     if any('{slot_' in t for t in pattern.sentence_structures):
         slot_values = _extract_slot_values_from_keys(bright_keys, conduction_result)
@@ -736,6 +742,8 @@ class LanguageModule:
             total_seeds = sum(s for _, _, s in cities) or 1
 
             for pot, cr, seeds in cities:
+                if pot.source_type == "internal":
+                    continue  # 机制键盆（时间键/SELF/QUEST）不产出内容句子
                 share = seeds / total_seeds
                 # 配额：种子占比 × 5 → 1-3 句，种子为 0 的给 1 句
                 if seeds == 0:
@@ -753,6 +761,8 @@ class LanguageModule:
 
             # 村庄：每个 0-1 句
             for pot, cr in villages[:2]:
+                if pot.source_type == "internal":
+                    continue  # 机制键盆不产出内容句子
                 bright_keys = [k for k in cr.top_keys[:4] if k.brightness >= 1]
                 all_bright_keys.extend(bright_keys)
                 sentences = self._build_from_paths(

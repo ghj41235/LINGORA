@@ -321,6 +321,7 @@ def _spread_activation(
         slippage_allowed,
         slippage_discount,
     )
+    from .wire import RELATION_POLARITY
 
     bright_keys = network.get_bright_keys()
     focus_ids = focus_ids or set()
@@ -370,7 +371,14 @@ def _spread_activation(
             if wire is not None and rel_boost:
                 rel_boost_mult = rel_boost.get(wire.relation_type, 1.0)
 
-            push = src.brightness * thickness * eff_decay * weight * slip_discount * (1.0 + ctx_boost) * rel_boost_mult
+            # ── 传导极性（三进制）：opposite-of 线负推力，抵消正推力（对立抑制）──
+            # 极性是关系类型的固定属性（wire.RELATION_POLARITY），
+            # 负推力不激活对立键，并与同键的正推力相抵（净推力 < 阈值 → 不亮）。
+            polarity = 1.0
+            if wire is not None:
+                polarity = float(RELATION_POLARITY.get(wire.relation_type, +1))
+
+            push = src.brightness * thickness * eff_decay * weight * slip_discount * (1.0 + ctx_boost) * rel_boost_mult * polarity
             accumulated[neighbor_id] = accumulated.get(neighbor_id, 0.0) + push
 
             # 追踪贡献最大的源键（比较折扣后的 push）

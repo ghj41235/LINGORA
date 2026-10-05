@@ -329,31 +329,24 @@ def _create_key(
 
 def _term_similarity(a: str, b: str) -> float:
     """
-    词项相似度（离散重叠，不用向量）。
+    词项相似度（纯 char bigram Jaccard，不用向量）。
 
-    - 精确相等 → 1.0
-    - 单字词（"猫"）不相等 → 0.0（"猫"≠"猫头鹰"，不能靠包含关系误判）
-    - 多字词：包含关系（"动物"⊂"哺乳动物"）→ 0.9
-    - 否则 char bigram Jaccard / containment 取大
+    为什么不做「a in b」包含关系：中文上下位词（"动物"⊂"哺乳动物"）
+    字符全包含，会误判成近重复——但它们只是不同粒度的分类知识，该共存。
+    纯 bigram Jaccard 对短词近似「精确相等」，宁漏勿错。
     """
     a, b = a.strip(), b.strip()
-    if not a or not b:
-        return 0.0
     if a == b:
         return 1.0
+    if not a or not b:
+        return 0.0
     if len(a) <= 1 or len(b) <= 1:
         return 0.0
-    if a in b or b in a:
-        return 0.9
     set_a = set(a[i:i + 2] for i in range(len(a) - 1))
     set_b = set(b[i:i + 2] for i in range(len(b) - 1))
     if not set_a or not set_b:
         return 0.0
-    inter = len(set_a & set_b)
-    union = len(set_a | set_b)
-    jaccard = inter / union
-    containment = inter / min(len(set_a), len(set_b))
-    return max(jaccard, containment)
+    return len(set_a & set_b) / len(set_a | set_b)
 
 
 def _relation_primitive(relation: str) -> Primitive | None:

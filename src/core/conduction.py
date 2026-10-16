@@ -54,6 +54,7 @@ class ConductionRequest:
     temperature: float = 0.5          # v1.0: 全局温度 (0.0–1.0)，控制搜索广度
     workspace_preheat: dict[int, float] | None = None  # v1.0: {key_id: threshold_reduction}
     relation_boost: dict[str, float] | None = None  # M4: 探照灯，按 relation_type 调导电率
+    persistent_seeds: set[int] | None = None  # 战场二：问题键全程不衰减（"问"持续在意识里）
 
 
 @dataclass
@@ -74,6 +75,9 @@ class ConductionResult:
     # 传导路径：记录每个被推亮的键的"来源"
     # {dst_id: (src_id, src_content, dst_content, wire_thickness, push_amount)}
     activation_paths: dict[int, tuple[int, str, str, float, float]] = field(default_factory=dict)
+    # 路径关系：与 activation_paths 并行的关系维度（路径驱动问答用）
+    # {dst_id: (relation_type, polarity)} —— 这条路径上的「关系」就是答案的支撑
+    path_relations: dict[int, tuple[str, float]] = field(default_factory=dict)
     # M4: 峰值格局——每键本轮到过的最高亮度（"闪过 2 就算喊过一嗓子"）
     peak_pattern: dict[int, int] = field(default_factory=dict)
 
@@ -100,9 +104,13 @@ def conduct(network: KeyNetwork, request: ConductionRequest) -> ConductionResult
     total_iterations = 0
     direction_changed = False
     all_paths: dict[int, tuple[int, str, str, float, float]] = {}  # 跨轮累积传导路径
+    all_relations: dict[int, tuple[str, float]] = {}  # 跨轮累积路径关系（relation_type, polarity）
 
     # ── v1.0: 工作空间预热 ──────────────────────
     preheat = request.workspace_preheat or {}
+
+    # ── 战场二: 持久种子（问题键，全程不衰减）──
+    persistent = request.persistent_seeds or set()
 
     # ── M4: 探照灯 + 峰值 ──────────────────────
     rel_boost = request.relation_boost or {}
@@ -121,9 +129,9 @@ def conduct(network: KeyNetwork, request: ConductionRequest) -> ConductionResult
     # ── 2. 外层：思考轮次循环 ──────────────────
     for cycle in range(MAX_CYCLES):
         # 2a. 内层：传导迭代（扩散→衰减→稳定）
-        inner_iters, inner_amps, cycle_paths = _run_conduction_pass(
+        inner_iters, inner_amps, cycle_paths, cycle_relations = _run_conduction_pass(
             network, fresh_keys, request.max_hops, start_time,
-            request.temperature, preheat, rel_boost,
+            request.temperature, preheat, rel_boost, persistent,
         )
         total_iterations += inner_iters
         all_amp_history.extend(inner_amps)
@@ -136,6 +144,8 @@ def conduct(network: KeyNetwork, request: ConductionRequest) -> ConductionResult
         for dst_id, path_info in cycle_paths.items():
             if dst_id not in all_paths:
                 all_paths[dst_id] = path_info
+                if dst_id in cycle_relations:
+                    all_relations[dst_id] = cycle_relations[dst_id]
 
         # 2b. 记录本轮结束时的格局
         current_pattern = _snapshot_brightness(network)
@@ -151,7 +161,7 @@ def conduct(network: KeyNetwork, request: ConductionRequest) -> ConductionResult
                 return _build_cycle_result(
                     network, total_iterations, elapsed, True, False,
                     all_amp_history, cycle + 1, cycle_patterns, False,
-                    all_paths, peaks,
+                    all_paths, peaks, all_relations,
                 )
 
             if delta > DIRECTION_CHANGE:
@@ -165,7 +175,7 @@ def conduct(network: KeyNetwork, request: ConductionRequest) -> ConductionResult
             return _build_cycle_result(
                 network, total_iterations, elapsed, False, False,
                 all_amp_history, cycle + 1, cycle_patterns, direction_changed,
-                all_paths, peaks,
+                all_paths, peaks, all_relations,
             )
 
         # 2e. 重播种：本轮最亮的键成为下一轮的种子
@@ -183,7 +193,7 @@ def conduct(network: KeyNetwork, request: ConductionRequest) -> ConductionResult
         network, total_iterations, elapsed,
         not direction_changed, False,
         all_amp_history, min(cycle + 1, MAX_CYCLES), cycle_patterns,
-        direction_changed, all_paths, peaks,
+        direction_changed, all_paths, peaks, all_relations,
     )
 
 
@@ -197,7 +207,8 @@ def _run_conduction_pass(
     temperature: float = 0.5,
     preheat: dict[int, float] | None = None,
     rel_boost: dict[str, float] | None = None,
-) -> tuple[int, list[float], dict[int, tuple[int, str, str, float, float]]]:
+    persistent_seeds: set[int] | None = None,
+) -> tuple[int, list[float], dict[int, tuple[int, str, str, float, float]], dict[int, tuple[str, float]]]:
     """
     运行一次传导轮次（内层循环）。
     扩散 → 衰减 → 振幅 → 判断稳定/超时/跳数限制。
@@ -212,6 +223,8 @@ def _run_conduction_pass(
     iteration = 0
     prev_pattern = _snapshot_brightness(network)
     all_paths: dict[int, tuple[int, str, str, float, float]] = {}
+    all_relations: dict[int, tuple[str, float]] = {}
+    persistent_seeds = persistent_seeds or set()
 
     while True:
         iteration += 1
@@ -223,15 +236,16 @@ def _run_conduction_pass(
         focus_ids = {k.id for k in bright[:FOCUS_TOP_K]}
 
         # 扩散（焦点加权 + 温度 + 滑移 + 探照灯）→ 收集激活路径
-        newly_activated, paths = _spread_activation(
+        newly_activated, paths, relations = _spread_activation(
             network, focus_ids, temperature, preheat, rel_boost,
         )
 
         # 合并本轮路径（新激活的键才记录路径）
         all_paths.update(paths)
+        all_relations.update(relations)
 
-        # 衰减（本轮种子 + 新激活的键不衰减）
-        _apply_decay(network, fresh_keys | newly_activated)
+        # 衰减（本轮种子 + 新激活的键不衰减；持久种子全程不衰减）
+        _apply_decay(network, fresh_keys | newly_activated | persistent_seeds)
         fresh_keys.clear()
 
         # 振幅
@@ -243,15 +257,15 @@ def _run_conduction_pass(
         elapsed = (time.time() - start_time) * 1000
 
         if amplitude < STABILITY_THRESHOLD:
-            return iteration, amp_history, all_paths
+            return iteration, amp_history, all_paths, all_relations
 
         if max_hops > 0 and iteration >= max_hops:
-            return iteration, amp_history, all_paths
+            return iteration, amp_history, all_paths, all_relations
 
         if elapsed > 10_000:  # 内层有自己独立的超时吗？不，由外层统一管理
             # 这里给一个合理的上限，实际超时由外层检测
             if iteration >= 20:
-                return iteration, amp_history, all_paths
+                return iteration, amp_history, all_paths, all_relations
 
         prev_pattern = curr_pattern
 
@@ -295,7 +309,7 @@ def _spread_activation(
     temperature: float = 0.5,
     preheat: dict[int, float] | None = None,
     rel_boost: dict[str, float] | None = None,
-) -> tuple[set[int], dict[int, tuple[int, str, str, float, float]]]:
+) -> tuple[set[int], dict[int, tuple[int, str, str, float, float]], dict[int, tuple[str, float]]]:
     """
     每个亮键向邻居扩散推力。
     推力 = source_brightness × wire_thickness × hop_decay × weight × slippage_discount
@@ -336,6 +350,7 @@ def _spread_activation(
     # 同时追踪每个邻居的"最佳来源"
     accumulated: dict[int, float] = {}
     best_source: dict[int, tuple[int, str, str, float, float]] = {}  # neighbor → (src_id, src_content, dst_content, thickness, push)
+    best_relation: dict[int, tuple[str, float]] = {}  # neighbor → (relation_type, polarity)
 
     for src in bright_keys:
         # 焦点加权
@@ -385,10 +400,12 @@ def _spread_activation(
             prev_best = best_source.get(neighbor_id)
             if prev_best is None or push > prev_best[4]:
                 best_source[neighbor_id] = (src.id, src.content, dst.content, thickness, push)
+                best_relation[neighbor_id] = (wire.relation_type if wire else "", polarity)
 
     # 第二步：累积推力 ≥ 有效跳档阈值 → 激活
     # 工作空间预热 + HTM 预测状态 → 降低跳档阈值
     paths: dict[int, tuple[int, str, str, float, float]] = {}
+    relations: dict[int, tuple[str, float]] = {}
     for neighbor_id, total_push in accumulated.items():
         dst = network.get_key(neighbor_id)
         if dst is None:
@@ -407,8 +424,10 @@ def _spread_activation(
                 # 记录传导路径（被谁推亮的）
                 if neighbor_id in best_source:
                     paths[neighbor_id] = best_source[neighbor_id]
+                    if neighbor_id in best_relation:
+                        relations[neighbor_id] = best_relation[neighbor_id]
 
-    return activated, paths
+    return activated, paths, relations
 
 
 # ── 衰减算法 ────────────────────────────────────
@@ -468,6 +487,7 @@ def _build_cycle_result(
     direction_changed: bool,
     activation_paths: dict[int, tuple[int, str, str, float, float]] | None = None,
     peak_pattern: dict[int, int] | None = None,
+    path_relations: dict[int, tuple[str, float]] | None = None,
 ) -> ConductionResult:
     """构建含循环信息和传导路径的结果。"""
     top = network.get_top_k_keys(10)
@@ -484,4 +504,5 @@ def _build_cycle_result(
         direction_changed=direction_changed,
         activation_paths=activation_paths or {},
         peak_pattern=peak_pattern or _snapshot_brightness(network),
+        path_relations=path_relations or {},
     )

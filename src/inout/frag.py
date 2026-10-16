@@ -294,6 +294,10 @@ def ingest_frag_file_to_garden(
     from .ingest import wire_self_reference
     wire_self_reference(garden, all_new_keys, target_pot.id)
 
+    # 战场二：为盆里已有的原语补建疑问键 + same-as 线（疑问词→目标原语概念键）
+    from src.core.grammar import ensure_question_keys_for_pot
+    ensure_question_keys_for_pot(garden, target_pot)
+
     return all_new_keys, target_pot.id, is_new_pot
 
 

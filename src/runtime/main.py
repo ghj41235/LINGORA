@@ -1,11 +1,11 @@
 """
-键盘模型 AI — 主循环（v0.3 花盆模型）
+键盘模型 AI — 主循环（v1.0 · 第三代）
 
 整个系统的大脑。把输入、传导、消化、语言、存储串起来，
 让罗小黑在终端里活过来。
 
-v0.3 升级：Garden（花园）替代单一 KeyNetwork。
-花盆隔离噪音，桥接管理跨盆联想。
+架构演进：键盘模型 → 花盆模型（Garden 多盆 + 跨盆桥接）→ v1.0 六条路线
+（CD 原语 / NARS 证据 / HTM 预测 / Copycat 温度 / CBR 案例 / 语法键网络）。
 
 用法：
     python -m src.runtime.main
@@ -547,6 +547,24 @@ class LuoXiaoheiRuntime:
         # 本轮种子全集（赢家抽取时排除）
         turn_seed_ids = {kid for kid, _, _ in all_seeds}
 
+        # ── 战场二：疑问词传导式路由 ──
+        # 疑问键（问:能干什么 等）作为持久种子：传导全程不衰减，
+        # 持续「引起」目标原语概念键亮（环环相扣，非查表）。
+        from src.core.grammar import detect_question_key, QUESTION_WORD_TO_RELATIONS
+        question_hit = detect_question_key(self.garden, text)
+        question_primitive = None
+        question_relations: tuple[str, ...] = ()
+        persistent_seed_ids: set[int] = set()
+        if question_hit is not None:
+            question_primitive, qkey_id, qpot_id = question_hit
+            qkey = self.garden.pots[qpot_id].network.get_key(qkey_id)
+            question_word = qkey.content[2:] if qkey is not None else ""
+            question_relations = QUESTION_WORD_TO_RELATIONS.get(question_word, ())
+            all_seeds.append((qkey_id, 2, qpot_id))
+            seeds_by_pot.setdefault(qpot_id, []).append((qkey_id, 2))
+            turn_seed_ids.add(qkey_id)
+            persistent_seed_ids.add(qkey_id)
+
         # 收集本轮所有孤种键（含上一轮已落地的，靠 is_orphan 持久标记，修正 C）
         orphan_keys: list = []
         _seen_orphan: set[int] = set()
@@ -680,6 +698,7 @@ class LuoXiaoheiRuntime:
             temperature=temperature,
             workspace_preheat=preheat,
             relation_boost=spotlight,
+            persistent_seeds=persistent_seed_ids,
         )
 
         # ── v1.0 HTM: 预测周期（时序记忆 + 预测状态机 + 注意力模式）──
@@ -709,6 +728,8 @@ class LuoXiaoheiRuntime:
                     cr.hesitation_detail = detail
 
         # 5. 生成回复（传入种子计数 + 产生式调控 + 本轮种子/孤种键）
+        # question_primitive 已在种子构建阶段经 detect_question_key 求得（传导式路由）
+
         response = self.language.generate_from_garden(
             self.garden,
             self.knowledge_base,
@@ -717,6 +738,8 @@ class LuoXiaoheiRuntime:
             output_regulation=output_regulation,
             turn_seed_ids=turn_seed_ids,
             orphan_keys=orphan_keys,
+            question_primitive=question_primitive,
+            question_relations=question_relations,
         )
 
         # ── v1.0: 语法键存储（记录本次格局→输出的映射）──
@@ -1851,7 +1874,7 @@ def main():
                 print(f"文件不存在：{filepath}")
             return
         elif args[i] == "--help" or args[i] == "-h":
-            print("罗小黑 键盘模型 AI  v0.3 花盆模型")
+            print("罗小黑 键盘模型 AI  v1.0 · 第三代")
             print()
             print("用法：python main.py [选项]")
             print()

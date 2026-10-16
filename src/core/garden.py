@@ -129,6 +129,9 @@ class GardenConductionResult:
     # 快捷访问：所有被激活键的传导路径（聚合自各盆）
     all_activation_paths: dict = field(default_factory=dict)
 
+    # 快捷访问：路径关系（聚合自各盆）{ (pot_id, dst_id): (relation_type, polarity) }
+    all_path_relations: dict = field(default_factory=dict)
+
     @property
     def total_pots_activated(self) -> int:
         return len(self.round1) + len(self.round3)
@@ -343,6 +346,7 @@ class Garden:
         temperature: float | None = None,
         workspace_preheat: dict[int, float] | None = None,
         relation_boost: dict[str, float] | None = None,  # M4: 探照灯
+        persistent_seeds: set[int] | None = None,  # 战场二：问题键全程不衰减
     ) -> GardenConductionResult:
         """
         执行跨盆传导（三轮流程）。
@@ -360,6 +364,7 @@ class Garden:
 
         result = GardenConductionResult()
         all_paths: dict = {}
+        all_relations: dict = {}
 
         # === 第一轮：盆内传导 ===
         seeds_by_pot: dict[str, list[tuple[int, int]]] = defaultdict(list)
@@ -379,12 +384,15 @@ class Garden:
                 temperature=temperature,
                 workspace_preheat=workspace_preheat,
                 relation_boost=relation_boost,
+                persistent_seeds=persistent_seeds,
             )
             pot_result = conduct(pot.network, request)
             result.round1[pot_id] = pot_result
             # 收集路径（标注盆 ID）
             for dst_id, path in pot_result.activation_paths.items():
                 all_paths[(pot_id, dst_id)] = path
+            for dst_id, rel in pot_result.path_relations.items():
+                all_relations[(pot_id, dst_id)] = rel
 
         # === 第二轮：桥接评估 ===
         spillover_seeds: dict[str, list[tuple[int, int]]] = defaultdict(list)
@@ -434,8 +442,11 @@ class Garden:
             # 收集路径（标注桥接来源）
             for dst_id, path in spill_result.activation_paths.items():
                 all_paths[(pot_id, dst_id)] = path
+            for dst_id, rel in spill_result.path_relations.items():
+                all_relations[(pot_id, dst_id)] = rel
 
         result.all_activation_paths = all_paths
+        result.all_path_relations = all_relations
         return result
 
     # ── 投喂路由 ───────────────────────────────

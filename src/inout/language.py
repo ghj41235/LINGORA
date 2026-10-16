@@ -172,6 +172,8 @@ def _is_header_like(content: str) -> bool:
         return True
     if s.startswith("词:") or s.startswith("词："):
         return True  # WORD 原语键，不应直接输出
+    if s.startswith("问:") or s.startswith("问："):
+        return True  # 疑问键（问题标记），不应直接输出——它是路由信号不是答案
     if len(s) <= 2 and not any('一' <= ch <= '鿿' for ch in s):
         return True  # 纯符号或过短
     return False
@@ -213,6 +215,7 @@ def _extract_slot_values_from_keys(
     bright_keys: list[Key],
     conduction_result: ConductionResult,
     key_lookup: dict[int, str] | None = None,
+    question_primitive: str | None = None,
 ) -> dict[int, str]:
     """
     从亮键和传导路径中提取槽位填充值。
@@ -275,14 +278,29 @@ def _extract_slot_values_from_keys(
         (k.brightness for k in bright_keys if k.id == rid), 0
     ), reverse=True)
 
-    if root_list:
-        slots[0] = lookup[root_list[0]][:35]
-    elif bright_keys:
-        # 无明确根键 → 取最亮的可输出键（过滤 "词:" 等头/标记碎片，防泄漏）
-        valid = [k for k in bright_keys if _ok(k.id)]
-        if valid:
-            brightest = max(valid, key=lambda k: k.brightness)
-            slots[0] = brightest.content[:35]
+    # 疑问词主导：slot_0 填目标原语的概念键内容（传导共振，非查表选键）。
+    # 优先级高于根键——「猫能干什么」要填 CAN 键「猫能捕鼠」，而非最亮的 IS 根键。
+    if question_primitive:
+        valid_prim = [k for k in bright_keys if _ok(k.id) and k.primitive == question_primitive]
+        if valid_prim:
+            brightest_prim = max(valid_prim, key=lambda k: k.brightness)
+            slots[0] = brightest_prim.content[:35]
+
+    if 0 not in slots:
+        if root_list:
+            slots[0] = lookup[root_list[0]][:35]
+        elif bright_keys:
+            # 无明确根键 → 取最亮的可输出键（过滤 "词:" 等头/标记碎片，防泄漏）
+            valid = [k for k in bright_keys if _ok(k.id)]
+            if valid:
+                # 疑问词主导：同原语键优先（「是什么」→ IS 键比 CAN/HAVE 键更该填 slot_0）
+                if question_primitive:
+                    matched = [k for k in valid if k.primitive == question_primitive]
+                    pool = matched or valid
+                else:
+                    pool = valid
+                brightest = max(pool, key=lambda k: k.brightness)
+                slots[0] = brightest.content[:35]
 
     # slot_1+: 从根键的子键中提取
     if root_list:
@@ -333,6 +351,7 @@ def _try_grammar_generation(
     conduction_result: ConductionResult,
     bright_keys: list[Key],
     tone: str = "normal",
+    question_primitive: str | None = None,
 ) -> list[str] | None:
     """
     尝试从语法键网络生成句子。
@@ -357,10 +376,10 @@ def _try_grammar_generation(
     if not hasattr(conduction_result, 'round1'):
         return None  # 不是 GardenConductionResult，无法提取签名
 
-    signature = compute_activation_signature(conduction_result, garden)
+    signature = compute_activation_signature(conduction_result, garden, question_primitive)
 
     # 2. 传导驱动语法匹配（替代旧版 Jaccard 字典遍历）
-    pattern = conduct_grammar_match(garden, signature, tone)
+    pattern = conduct_grammar_match(garden, signature, tone, question_primitive)
     if pattern is None or not pattern.sentence_structures:
         return None
 
@@ -372,7 +391,9 @@ def _try_grammar_generation(
 
     # 3. 槽位填充（无槽位模板如困惑表达、主动搭话 → 跳过提取）
     if any('{slot_' in t for t in pattern.sentence_structures):
-        slot_values = _extract_slot_values_from_keys(bright_keys, conduction_result)
+        slot_values = _extract_slot_values_from_keys(
+            bright_keys, conduction_result, question_primitive=question_primitive
+        )
     else:
         slot_values = {}
 
@@ -655,6 +676,8 @@ class LanguageModule:
         output_regulation=None,  # Phase 6: OutputRegulation | None
         turn_seed_ids: set[int] | None = None,  # M5: 本轮种子键（赢家抽取时排除）
         orphan_keys: list | None = None,         # M5: 本轮孤种键（沉默时说"还不懂"）
+        question_primitive: str | None = None,   # 战场二：疑问词目标原语（传导式路由）
+        question_relations: tuple[str, ...] = (),  # 战场二：疑问词关系词（同原语内精细路由）
     ) -> str:
         """
         从花园跨盆传导结果生成回复——多盆加权参与版。
@@ -674,7 +697,7 @@ class LanguageModule:
         # ── M5: 赢家抽取门 ──
         # 传导没带出任何「非种子、可输出」的键 = 没有结构可传导。
         # 此时直接说"我还不太懂"（孤种键）或困惑，绝不落入语法盆乱选。
-        winners = self._extract_winners(result, turn_seed_ids, garden)
+        winners = self._extract_winners(result, turn_seed_ids, garden, question_primitive)
         if not winners:
             return self._add_personality(self._speak_silence(orphan_keys))
 
@@ -683,6 +706,14 @@ class LanguageModule:
             if cr.is_hesitating:
                 detail = cr.hesitation_detail or "让我再想想……"
                 return random.choice(TEMPLATE_HESITATE).format(detail=detail)
+
+        # ── 战场二：疑问词主导的传导式问答 ──
+        # 疑问键亮了 → 直接引起目标原语概念键亮（环环相扣），答案 = 那些键的内容。
+        # 这是传导式路由的落点：不做查表，只是把传导结果读出来。
+        if question_primitive is not None:
+            answer = self._answer_question(result, garden, question_primitive, question_relations)
+            if answer:
+                return self._add_personality(answer, tone="normal")
 
         # ── 多盆参与计划 ──
         # 城市：有种子键的盆（输入直接相关的）
@@ -729,7 +760,7 @@ class LanguageModule:
             all_bright_keys.extend(k for k in cr.top_keys[:4] if k.brightness >= 1)
 
         grammar_sentences = _try_grammar_generation(
-            garden, result, all_bright_keys, tone
+            garden, result, all_bright_keys, tone, question_primitive
         )
         if grammar_sentences:
             # ── 语法键命中 → 直接使用（跳过逐盆构建）──
@@ -801,13 +832,13 @@ class LanguageModule:
 
     # ── M5: 赢家抽取 + 沉默 ──────────────────────────
 
-    def _extract_winners(self, result, turn_seed_ids, garden) -> list:
+    def _extract_winners(self, result, turn_seed_ids, garden, question_primitive=None) -> list:
         """
         赢家 = 传导结束后仍亮着、且不是本轮种子的可输出键。
 
         排除：本轮种子（turn_seed_ids）、internal 源、header 式内容、休眠键。
         遍历 round1 + round3 的 final_pattern（brightness >= 1）。
-        排序：亮度 → 离内容种子的路径跳数 → NARS 期望值。
+        排序：疑问词目标原语优先 → 亮度 → 离内容种子的路径跳数 → NARS 期望值。
         """
         turn_seed_ids = turn_seed_ids or set()
         candidates: list[tuple] = []  # [(key, pot_id, cr, brightness)]
@@ -855,10 +886,62 @@ class LanguageModule:
         def _sort_key(item) -> tuple:
             key, _pot_id, cr, brightness = item
             exp = truth_expectation(key.evidence_freq, key.evidence_conf)
-            return (-brightness, _depth(cr, key.id), -exp)
+            # 疑问词主导：与目标原语同 primitive 的键排最前（传导式共振，非查表选键）
+            prim_match = 0 if (question_primitive and key.primitive == question_primitive) else 1
+            return (prim_match, -brightness, _depth(cr, key.id), -exp)
 
         candidates.sort(key=_sort_key)
         return [k for k, _p, _c, _b in candidates]
+
+    def _answer_question(self, result, garden, question_primitive, question_relations=()) -> str | None:
+        """
+        战场二：疑问词主导的传导式问答。
+
+        疑问键（持久种子）亮了，直接引起目标原语概念键亮（环环相扣）。
+        答案 = 那些被点亮的目标原语概念键的内容，按亮度排序取最亮的几个自然成句。
+
+        不做查表——只是把传导结果「读」出来；路由已在传导阶段完成。
+        关系词（question_relations）区分同一原语内的精细路由（「属于什么」vs「是什么」）。
+        返回 None 表示没有可答的目标原语键（降级到常规生成）。
+        """
+        collected: list[tuple] = []  # (key, brightness)
+        seen: set[int] = set()
+        for round_name in ('round1', 'round3'):
+            for pot_id, cr in getattr(result, round_name, {}).items():
+                pot = garden.pots.get(pot_id)
+                if pot is None:
+                    continue
+                for kid, b in cr.final_pattern.items():
+                    if b < 1 or kid in seen:
+                        continue
+                    key = pot.network.get_key(kid)
+                    if key is None or key.is_dormant:
+                        continue
+                    if key.source == "internal":
+                        continue  # 疑问键/机制键不是答案内容
+                    if key.primitive != question_primitive:
+                        continue
+                    if _is_header_like(key.content):
+                        continue
+                    seen.add(kid)
+                    collected.append((key, b))
+
+        if not collected:
+            return None
+
+        # 关系词精细路由：优先取内容含关系词的概念键（如「属于」），
+        # 空则回退到全部同原语键（宽容：不因关系词缺配而答不出）。
+        if question_relations:
+            rel_hits = [
+                (k, b) for k, b in collected
+                if any(r in k.content for r in question_relations)
+            ]
+            if rel_hits:
+                collected = rel_hits
+
+        # 最亮的在前，同亮度按 id 稳定排序
+        collected.sort(key=lambda item: (-item[1], item[0].id))
+        return "。".join(k.content[:35] for k, _ in collected[:3]) + "。"
 
     def _speak_silence(self, orphan_keys) -> str:
         """

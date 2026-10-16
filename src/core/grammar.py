@@ -185,6 +185,7 @@ class GrammarPattern:
 def compute_activation_signature(
     conduction_result: "GardenConductionResult",
     garden: "Garden",
+    question_primitive: str | None = None,
 ) -> tuple[str, ...]:
     """
     从传导结果中提取"激活签名"——一个描述当前认知格局的排序元组。
@@ -194,6 +195,10 @@ def compute_activation_signature(
     2. 关系类型：传导路径中出现的 relation_type（如 "cause-of", "part-of"）
 
     签名用于匹配已有的语法输出模式——相似的格局应产生相似的句子结构。
+
+    疑问键（content 前缀「问:」）是路由信号，不是答案内容，不进签名。
+    疑问词主导（question_primitive）时，签名聚焦目标原语——「猫能干什么」
+    的认知格局是 CAN，不是 IS+CAN+HAVE+DISLIKE 的大杂烩。
 
     算法：
     1. 收集所有亮键（brightness ≥ 1）的 primitive 类型
@@ -214,6 +219,16 @@ def compute_activation_signature(
         "SELF", "MASTER", "QUEST",
     }
 
+    def _collect_primitive(key) -> None:
+        """把概念键的原语收进签名（过滤机制键/疑问键/非目标原语）。"""
+        if not key.primitive or key.primitive in _INTERNAL_PRIMITIVES:
+            return
+        if key.content.startswith("问:"):
+            return  # 疑问键是路由信号，不是答案内容
+        if question_primitive is not None and key.primitive != question_primitive:
+            return  # 疑问词聚焦：只看目标原语
+        primitives_seen.add(key.primitive)
+
     primitives_seen: set[str] = set()
     relations_seen: set[str] = set()
 
@@ -230,8 +245,7 @@ def compute_activation_signature(
             key = pot.network.get_key(kid)
             if key is None:
                 continue
-            if key.primitive and key.primitive not in _INTERNAL_PRIMITIVES:
-                primitives_seen.add(key.primitive)
+            _collect_primitive(key)
 
         # 收集路径中的关系类型
         for dst_id, (src_id, src_c, dst_c, wire_thickness, push) in cr.activation_paths.items():
@@ -251,8 +265,7 @@ def compute_activation_signature(
             key = pot.network.get_key(kid)
             if key is None:
                 continue
-            if key.primitive and key.primitive not in _INTERNAL_PRIMITIVES:
-                primitives_seen.add(key.primitive)
+            _collect_primitive(key)
 
         for dst_id, (src_id, src_c, dst_c, wire_thickness, push) in cr.activation_paths.items():
             wire = pot.network.get_wire(src_id, dst_id)
@@ -484,10 +497,11 @@ def _ensure_primitive_marker_keys(garden: "Garden"):
         Primitive.IS, Primitive.NOT, Primitive.HAVE, Primitive.NOT_HAVE,
         # 行动
         Primitive.MOVE, Primitive.GIVE, Primitive.EAT, Primitive.SAY, Primitive.MAKE, Primitive.USE,
+        Primitive.CAN,
         # 关系
         Primitive.BIGGER, Primitive.SMALLER, Primitive.INSIDE, Primitive.OUTSIDE,
         Primitive.BEFORE, Primitive.AFTER, Primitive.CAUSE, Primitive.LIKE, Primitive.DISLIKE,
-        Primitive.SAME,
+        Primitive.SAME, Primitive.CONNECT,
         # 数量
         Primitive.MANY, Primitive.FEW,
     ]
@@ -542,6 +556,135 @@ def _wire_markers_together(grammar_pot, markers: dict[str, int]):
             cat_b = prim_category.get(b_prim, "")
             thickness = 0.3 if cat_a == cat_b else 0.15
             grammar_pot.network.set_wire(a_id, b_id, thickness=thickness)
+
+
+# ═══════════════════════════════════════════════
+# 3b. 疑问键 —— 一词多原语键的传导式路由
+# ═══════════════════════════════════════════════
+
+# 疑问词 → 目标原语。这是「建键声明」，不是运行时查表：
+# 每个疑问词建成一个键（疑问键），键的 primitive 字段声明它指向哪个原语。
+# 识别时靠内容匹配键（像找概念键一样），路由时靠 primitive 共振——
+# 「问:是什么」这个键亮了，直接引起同原语 IS 的概念键亮，环环相扣。
+QUESTION_WORD_TO_PRIMITIVE: dict[str, str] = {
+    "是什么": "IS",
+    "是什么东西": "IS",
+    "属于什么": "IS",
+    "能干什么": "CAN",
+    "会做什么": "CAN",
+    "能做什么": "CAN",
+    "怕什么": "DISLIKE",
+    "讨厌什么": "DISLIKE",
+    "有什么": "HAVE",
+    "喜欢什么": "LIKE",
+    "爱吃什么": "LIKE",
+    "导致什么": "CAUSE",
+    "引起什么": "CAUSE",
+}
+
+
+# 疑问词 → 关系词（内容匹配用）。同一原语内的精细路由：疑问键只连
+# 「内容含这些关系词」的概念键。「属于什么」→ 只连「猫属于猫科动物」，
+# 「是什么」→ 只连「猫是一种哺乳动物」等。建线时定死，运行时纯传导——
+# 疑问键亮 → 直接引起目标概念键亮，比词键多一次推力，自然更亮（环环相扣）。
+QUESTION_WORD_TO_RELATIONS: dict[str, tuple[str, ...]] = {
+    "是什么": ("是", "叫做"),
+    "是什么东西": ("是", "叫做"),
+    "属于什么": ("属于",),
+    "能干什么": ("能", "会", "可以"),
+    "会做什么": ("会", "能", "可以"),
+    "能做什么": ("能", "会", "可以"),
+    "怕什么": ("怕",),
+    "讨厌什么": ("讨厌",),
+    "有什么": ("有", "拥有", "具有"),
+    "喜欢什么": ("喜欢",),
+    "爱吃什么": ("爱", "喜欢"),
+    "导致什么": ("导致",),
+    "引起什么": ("引起",),
+}
+
+
+def ensure_question_keys_for_pot(garden: "Garden", pot):
+    """
+    在概念盆为每个已存在的原语建疑问键，并连线到同 primitive 的概念键。
+
+    疑问键 content = 「问:<疑问词>」，primitive = 目标原语。
+    疑问键 ↔ 概念键之间建 same-as 强线（0.8）——传导时疑问键亮了，
+    直接点亮目标原语概念键（「这个亮了直接引起另一个」），不是查表选键。
+    """
+    from src.core.wire import SLIPPAGE_DISTANCE
+
+    if pot is None:
+        return
+
+    # 盆里所有概念原语键（非 WORD/OUTPUT、非疑问键自身），按原语分组
+    concept_by_prim: dict[str, list] = {}
+    for key in pot.network.all_keys():
+        if not key.primitive or key.primitive in ("WORD", "OUTPUT"):
+            continue
+        if key.content.startswith("问:"):
+            continue
+        concept_by_prim.setdefault(key.primitive, []).append(key)
+
+    for word, prim in QUESTION_WORD_TO_PRIMITIVE.items():
+        concept_keys = concept_by_prim.get(prim, [])
+        if not concept_keys:
+            continue  # 该盆还没有这个原语的概念键 → 不建空疑问键
+        # 同一原语内的精细路由：疑问词自带关系词，只连内容含该关系词的概念键。
+        relations = QUESTION_WORD_TO_RELATIONS.get(word, ())
+        if relations:
+            concept_keys = [
+                k for k in concept_keys
+                if any(r in k.content for r in relations)
+            ]
+            if not concept_keys:
+                continue
+        content = f"问:{word}"
+        qkey = next(
+            (k for k in pot.network.all_keys() if k.content == content),
+            None,
+        )
+        if qkey is None:
+            qkey = pot.network.create_key(content=content, source="internal")
+            qkey.primitive = prim
+        for ck in concept_keys:
+            if pot.network.get_wire(qkey.id, ck.id) is None:
+                pot.network.set_wire(qkey.id, ck.id, thickness=0.8)
+                w = pot.network.get_wire(qkey.id, ck.id)
+                if w:
+                    w.relation_type = "same-as"
+                    w.slippage_distance = SLIPPAGE_DISTANCE.get("same-as", 0)
+
+
+def detect_question_key(garden: "Garden", text: str):
+    """
+    识别输入里的疑问词，返回 (目标原语, 疑问键 id, 盆 id)，无命中返回 None。
+
+    传导式识别：遍历概念盆的疑问键（content 前缀「问:」），
+    取 content 在 text 里的最长命中（「能干什么」优先于「什么」）。
+    不查表——命中的是键，返回的是键的 primitive 字段 + 其盆。
+    """
+    best_word = ""
+    best: tuple[str, int, str] | None = None
+    for pot in garden.pots.values():
+        if pot.id == getattr(garden, "grammar_pot_id", ""):
+            continue
+        if pot.source_type == "internal":
+            continue
+        for key in pot.network.all_keys():
+            if not key.content.startswith("问:"):
+                continue
+            word = key.content[2:]
+            if word and word in text and len(word) > len(best_word):
+                best_word = word
+                best = (key.primitive, key.id, pot.id)
+    return best
+
+
+def detect_question_primitive(garden: "Garden", text: str) -> str | None:
+    """薄封装：只返回目标原语（兼容旧调用点）。"""
+    hit = detect_question_key(garden, text)
+    return hit[0] if hit else None
 
 
 def _wire_markers_to_outputs(garden: "Garden"):
@@ -638,6 +781,7 @@ def conduct_grammar_match(
     garden: "Garden",
     activation_signature: tuple[str, ...],
     tone: str = "normal",
+    question_primitive: str | None = None,
 ) -> "GrammarPattern | None":
     """
     通过语法盆内部传导选出最匹配的 OUTPUT 键。
@@ -648,10 +792,12 @@ def conduct_grammar_match(
 
     流程：
     1. 找到签名中每个 Primitive 对应的原语标记键 → 设为种子
-    2. Tone 引导：同 tone pattern 的签名原语获得微弱加成
-    3. 运行标准传导（conduct）
-    4. 收集亮度 ≥ 1 的 OUTPUT 键
-    5. 按亮度排序 → 找所属 GrammarPattern → 返回最亮的
+    2. 疑问词主导（question_primitive）：目标原语标记键亮度 3，
+       其余原语降为辅助亮度 1——「是什么」亮，IS 标记键就比别的更亮
+    3. Tone 引导：同 tone pattern 的签名原语获得微弱加成
+    4. 运行标准传导（conduct）
+    5. 收集亮度 ≥ 1 的 OUTPUT 键
+    6. 按亮度排序 → 找所属 GrammarPattern → 返回最亮的
 
     返回 None 表示未命中（调用方降级到困惑型或路径构建）。
     """
@@ -684,7 +830,11 @@ def conduct_grammar_match(
             continue  # 关系类型标记暂不参与种子（MVP 简化）
         marker_id = marker_by_primitive.get(sig_elem)
         if marker_id is not None:
-            seeds.append((marker_id, 2))
+            if question_primitive is not None:
+                # 疑问词主导：目标原语亮度 3，其余原语降为辅助 1
+                seeds.append((marker_id, 3 if sig_elem == question_primitive else 1))
+            else:
+                seeds.append((marker_id, 2))
 
     if not seeds:
         return _find_fallback_pattern(garden)

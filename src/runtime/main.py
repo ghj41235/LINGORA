@@ -547,23 +547,34 @@ class LuoXiaoheiRuntime:
         # 本轮种子全集（赢家抽取时排除）
         turn_seed_ids = {kid for kid, _, _ in all_seeds}
 
-        # ── 战场二：疑问词传导式路由 ──
-        # 疑问键（问:能干什么 等）作为持久种子：传导全程不衰减，
-        # 持续「引起」目标原语概念键亮（环环相扣，非查表）。
-        from src.core.grammar import detect_question_key, QUESTION_WORD_TO_RELATIONS
+        # ── 战场二：疑问词路径驱动路由（B 重构）──
+        # 疑问键（问:能干什么 等）作为持久种子：传导全程不衰减，标记「本轮焦点原语」。
+        # 目标关系类型喂进 relation_boost 探照灯，让传导沿真实关系线走（撤销 same-as 等同偷换）。
+        from src.core.grammar import (
+            detect_question_key,
+            QUESTION_WORD_TO_RELATION_TYPE,
+            QUESTION_WORD_TO_RELATIONS,
+        )
         question_hit = detect_question_key(self.garden, text)
         question_primitive = None
+        question_relation_type = ""
         question_relations: tuple[str, ...] = ()
         persistent_seed_ids: set[int] = set()
         if question_hit is not None:
             question_primitive, qkey_id, qpot_id = question_hit
             qkey = self.garden.pots[qpot_id].network.get_key(qkey_id)
             question_word = qkey.content[2:] if qkey is not None else ""
+            question_relation_type = QUESTION_WORD_TO_RELATION_TYPE.get(question_word, "")
             question_relations = QUESTION_WORD_TO_RELATIONS.get(question_word, ())
             all_seeds.append((qkey_id, 2, qpot_id))
             seeds_by_pot.setdefault(qpot_id, []).append((qkey_id, 2))
             turn_seed_ids.add(qkey_id)
             persistent_seed_ids.add(qkey_id)
+            # B 重构：目标关系类型 → relation_boost 探照灯（放大对应关系线的导电率）
+            if question_relation_type:
+                spotlight[question_relation_type] = max(
+                    spotlight.get(question_relation_type, 1.0), 1.6
+                )
 
         # 收集本轮所有孤种键（含上一轮已落地的，靠 is_orphan 持久标记，修正 C）
         orphan_keys: list = []
@@ -739,6 +750,7 @@ class LuoXiaoheiRuntime:
             turn_seed_ids=turn_seed_ids,
             orphan_keys=orphan_keys,
             question_primitive=question_primitive,
+            question_relation_type=question_relation_type,
             question_relations=question_relations,
         )
 

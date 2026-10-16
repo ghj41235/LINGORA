@@ -676,8 +676,9 @@ class LanguageModule:
         output_regulation=None,  # Phase 6: OutputRegulation | None
         turn_seed_ids: set[int] | None = None,  # M5: 本轮种子键（赢家抽取时排除）
         orphan_keys: list | None = None,         # M5: 本轮孤种键（沉默时说"还不懂"）
-        question_primitive: str | None = None,   # 战场二：疑问词目标原语（传导式路由）
-        question_relations: tuple[str, ...] = (),  # 战场二：疑问词关系词（同原语内精细路由）
+        question_primitive: str | None = None,   # 战场二：疑问词目标原语（路径驱动路由）
+        question_relation_type: str = "",          # 战场二：目标关系类型（relation_type 主轴）
+        question_relations: tuple[str, ...] = (),  # 战场二：关系词（同原语内精细路由，排序维度）
     ) -> str:
         """
         从花园跨盆传导结果生成回复——多盆加权参与版。
@@ -711,7 +712,10 @@ class LanguageModule:
         # 疑问键亮了 → 直接引起目标原语概念键亮（环环相扣），答案 = 那些键的内容。
         # 这是传导式路由的落点：不做查表，只是把传导结果读出来。
         if question_primitive is not None:
-            answer = self._answer_question(result, garden, question_primitive, question_relations)
+            answer = self._answer_question(
+                result, garden, question_primitive,
+                question_relation_type, question_relations,
+            )
             if answer:
                 return self._add_personality(answer, tone="normal")
 
@@ -893,18 +897,21 @@ class LanguageModule:
         candidates.sort(key=_sort_key)
         return [k for k, _p, _c, _b in candidates]
 
-    def _answer_question(self, result, garden, question_primitive, question_relations=()) -> str | None:
+    def _answer_question(self, result, garden, question_primitive, target_relation_type="", question_relations=()) -> str | None:
         """
-        战场二：疑问词主导的传导式问答。
+        战场二：疑问词主导的路径驱动问答（B 重构）。
 
-        疑问键（持久种子）亮了，直接引起目标原语概念键亮（环环相扣）。
-        答案 = 那些被点亮的目标原语概念键的内容，按亮度排序取最亮的几个自然成句。
+        撤销 same-as 等同偷换后，疑问键不再等同强点亮概念键；概念键靠词键沿
+        part-of 等真实关系线传导点亮。答案不再 argmax(亮度) 选「最亮键」，
+        而是读「线」——三重排序（都优先于亮度）：
+        1. 关系词命中：同原语内精细路由（「属于什么」优先「属于」键；排序而非预筛，宽容）
+        2. 真实关系：path_relations 的 relation_type（part-of 词键传导 > similar-to 疑问键引导）
+        3. 亮度：前两者相同时才比亮度
 
-        不做查表——只是把传导结果「读」出来；路由已在传导阶段完成。
-        关系词（question_relations）区分同一原语内的精细路由（「属于什么」vs「是什么」）。
         返回 None 表示没有可答的目标原语键（降级到常规生成）。
         """
-        collected: list[tuple] = []  # (key, brightness)
+        # (key, brightness, relation_type, polarity, 是否命中关系词)
+        collected: list[tuple] = []
         seen: set[int] = set()
         for round_name in ('round1', 'round3'):
             for pot_id, cr in getattr(result, round_name, {}).items():
@@ -923,25 +930,38 @@ class LanguageModule:
                         continue
                     if _is_header_like(key.content):
                         continue
+                    # 路径驱动：读这条键是被哪条 relation_type 的线点亮的
+                    rel_type, polarity = result.all_path_relations.get(
+                        (pot_id, kid), ("", 0.0)
+                    )
+                    rel_word_hit = (
+                        not question_relations
+                        or any(r in key.content for r in question_relations)
+                    )
                     seen.add(kid)
-                    collected.append((key, b))
+                    collected.append((key, b, rel_type, polarity, rel_word_hit))
 
         if not collected:
             return None
 
-        # 关系词精细路由：优先取内容含关系词的概念键（如「属于」），
-        # 空则回退到全部同原语键（宽容：不因关系词缺配而答不出）。
-        if question_relations:
-            rel_hits = [
-                (k, b) for k, b in collected
-                if any(r in k.content for r in question_relations)
-            ]
-            if rel_hits:
-                collected = rel_hits
+        # 路径驱动排序：关系词命中 > 真实关系 > 亮度。真实关系（词键传导的 part-of 等）
+        # 优先于疑问键同类引导（similar-to/same-as），对立关系（负极性）垫底。
+        def _rel_priority(rel_type: str, polarity: float) -> int:
+            if polarity < 0:
+                return 3  # 对立关系（opposite-of），不是正面答案
+            if rel_type in ("similar-to", "same-as"):
+                return 2  # 疑问键同类引导（same-as 偷换的残留）
+            if target_relation_type and rel_type == target_relation_type:
+                return 0  # 目标关系类型命中（真实关系 + 目标匹配）
+            return 1  # 其他真实关系（part-of/cause-of 等）或无记录
 
-        # 最亮的在前，同亮度按 id 稳定排序
-        collected.sort(key=lambda item: (-item[1], item[0].id))
-        return "。".join(k.content[:35] for k, _ in collected[:3]) + "。"
+        collected.sort(key=lambda item: (
+            0 if item[4] else 1,           # 1. 关系词命中优先
+            _rel_priority(item[2], item[3]),  # 2. 真实关系优先
+            -item[1],                       # 3. 亮度
+            item[0].id,                     # 4. 稳定
+        ))
+        return "。".join(k.content[:35] for k, _, _, _, _ in collected[:3]) + "。"
 
     def _speak_silence(self, orphan_keys) -> str:
         """

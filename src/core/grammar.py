@@ -604,13 +604,38 @@ QUESTION_WORD_TO_RELATIONS: dict[str, tuple[str, ...]] = {
 }
 
 
+# 疑问词 → 目标关系类型（词键间 relation_type，5 值之一）。
+# B 重构（路径驱动）新增：relation_type 是「线」的粗粒度关系，与「键」的 primitive 正交。
+# 用于两处——(1) relation_boost 探照灯：传导时放大目标关系线，让思考沿正确关系走；
+# (2) _answer_question 路径筛选：只选「沿真实关系线点亮」的答案键。
+# 注意：原语键↔词键线固定 part-of，所以大多数疑问词目标关系都是 part-of；
+# 只有 怕/讨厌（opposite-of）、导致/引起（cause-of）落在别的桶——这正是不被 same-as 抹掉的区别。
+QUESTION_WORD_TO_RELATION_TYPE: dict[str, str] = {
+    "是什么": "part-of",
+    "是什么东西": "part-of",
+    "属于什么": "part-of",
+    "能干什么": "part-of",
+    "会做什么": "part-of",
+    "能做什么": "part-of",
+    "有什么": "part-of",
+    "喜欢什么": "part-of",
+    "爱吃什么": "part-of",
+    "怕什么": "opposite-of",
+    "讨厌什么": "opposite-of",
+    "导致什么": "cause-of",
+    "引起什么": "cause-of",
+}
+
+
 def ensure_question_keys_for_pot(garden: "Garden", pot):
     """
     在概念盆为每个已存在的原语建疑问键，并连线到同 primitive 的概念键。
 
     疑问键 content = 「问:<疑问词>」，primitive = 目标原语。
-    疑问键 ↔ 概念键之间建 same-as 强线（0.8）——传导时疑问键亮了，
-    直接点亮目标原语概念键（「这个亮了直接引起另一个」），不是查表选键。
+    疑问键 ↔ 概念键之间建 similar-to 弱线（0.35）——B 重构撤销 same-as 等同偷换：
+    same-as（slippage=0）把疑问键与概念键「等同」强点亮，抹掉真实关系；
+    similar-to（slippage=1）只做弱同类引导，让词键→概念键的 part-of 真实关系
+    在传导里成为最佳来源——路径里读到的才是真关系，不是偷换的等同。
     """
     from src.core.wire import SLIPPAGE_DISTANCE
 
@@ -649,11 +674,15 @@ def ensure_question_keys_for_pot(garden: "Garden", pot):
             qkey.primitive = prim
         for ck in concept_keys:
             if pot.network.get_wire(qkey.id, ck.id) is None:
-                pot.network.set_wire(qkey.id, ck.id, thickness=0.8)
+                # B 重构：撤销 same-as 等同偷换。疑问键↔概念键不再「等同」
+                # （same-as slippage=0 会把疑问键亮度 2 等同强点亮概念键，抹掉真实关系），
+                # 改成 similar-to（slippage=1）弱同类引导 + 细线（0.35），让词键→概念键
+                # 的 part-of 真实关系在传导里成为最佳来源（路径读真关系）。
+                pot.network.set_wire(qkey.id, ck.id, thickness=0.35)
                 w = pot.network.get_wire(qkey.id, ck.id)
                 if w:
-                    w.relation_type = "same-as"
-                    w.slippage_distance = SLIPPAGE_DISTANCE.get("same-as", 0)
+                    w.relation_type = "similar-to"
+                    w.slippage_distance = SLIPPAGE_DISTANCE.get("similar-to", 0)
 
 
 def detect_question_key(garden: "Garden", text: str):

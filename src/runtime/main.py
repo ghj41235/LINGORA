@@ -475,6 +475,43 @@ class LuoXiaoheiRuntime:
         global_total = self.garden.total_keys
         # 预计算每个 token 的全局匹配数（跨所有盆统计）
         tokens = _tokenize(text)
+
+        # ── A1: 言外之力资格层（焦点钉死 + 门控检索）──
+        # 先识别输入在「问什么」（Frame），再决定哪些键有资格回答。
+        # identity 定义查询（手机 / 英语 / 你是谁 / X是什么）确定性短路：
+        # 门控检索反查 subject=topic 的 IS 键，不靠传导亮度——
+        # 杜绝「手机屏幕也是亮的」抢「手机是一个巴掌大小的东西」。
+        from src.core.frame import (
+            recognize_frame,
+            retrieve_identity,
+            ACT_OSTENSION,
+            ACT_QUERY_WHO,
+            ACT_QUERY_WHAT,
+        )
+        _frame = recognize_frame(text, tokens)
+        if (_frame.focus == "identity" and _frame.pred == "IS"
+                and _frame.act in (ACT_OSTENSION, ACT_QUERY_WHO, ACT_QUERY_WHAT)):
+            _topic = _frame.topic or ""
+            _answer = retrieve_identity(self.garden, _topic, is_self_query=_frame.is_self_query)
+            if _answer is not None:
+                # 确定性 frame 回答：直接输出定义，不进传导（不受前轮残留污染）
+                print(self.language._add_personality(_answer, tone="normal"))
+                print()
+                self.prev_master_input = text
+                self._post_conversation_update(_answer, False, start_time, len(text) > 20)
+                self.garden.inference_energy.recharge(INFERENCE_RECHARGE_PER_CONVO)
+                return
+            # 门控未命中 → 安全网「我还不太懂{topic}」（self 查询兜底困惑）
+            if _topic and _topic != "self":
+                print(self.language._add_personality(f"我还不太懂{_topic}。", tone="normal"))
+            else:
+                print(random.choice(self.personality.confused_responses))
+            print()
+            self.prev_master_input = text
+            self._post_conversation_update("", False, start_time, len(text) > 20)
+            self.garden.inference_energy.recharge(INFERENCE_RECHARGE_PER_CONVO)
+            return
+
         global_matching: dict[str, int] = {}
         for token in tokens:
             count = 0

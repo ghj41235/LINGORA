@@ -589,6 +589,9 @@ class LanguageModule:
             dst_content = key_lookup.get(dst_id, "")
             src_content = key_lookup.get(src_id, "")
             if dst_content and src_content:
+                # 过滤「词:」/「问:」等头式键——它们不是内容，泄露出去是「就是词:屋子」这类碎句
+                if _is_header_like(dst_content) or _is_header_like(src_content):
+                    continue
                 adv = _wire_adverb(wire)
                 sentences.append(f"{src_content[:20]}{adv}{dst_content[:25]}")
                 used_dst.add(dst_id)

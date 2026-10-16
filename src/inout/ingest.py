@@ -481,6 +481,10 @@ def ingest_document_to_garden_v1(
     # 8. M3: 自我介绍类新键连 SELF 桥（指代消解够到自我介绍）
     wire_self_reference(garden, all_new_keys, target_pot.id)
 
+    # 9. 疑问键路由：每个概念盆补齐「问:<疑问词>」键（CD 路径也要建，.frag 路径在 frag.py 建）
+    from src.core.grammar import ensure_question_keys_for_pot
+    ensure_question_keys_for_pot(garden, target_pot)
+
     return all_new_keys, target_pot.id, is_new_pot, concept_clusters
 
 

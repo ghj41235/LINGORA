@@ -167,3 +167,63 @@ def recognize_frame(text: str, tokens: list[str]) -> Frame:
 
     # ── 默认陈述 ──
     return Frame(act=ACT_ASSERT, topic=content[0] if content else None)
+
+
+# ═══════════════════════════════════════════════
+# 门控检索（焦点钉死后的答案来源）
+# ═══════════════════════════════════════════════
+
+def retrieve_identity(garden, topic: str, is_self_query: bool = False) -> str | None:
+    """
+    门控检索：反查 identity 定义键，返回定义句原文（IS 键的 content）。
+
+    只认「IS 键的 subject 槽位 == 主题词键」这一条资格线——不看传导亮度，
+    所以「手机屏幕也是亮的」这种前缀误匹配键再亮也没资格（它的 subject 不是「手机」）。
+
+    is_self_query（「你是谁」）时，主题词是「我/小黑/罗小黑」，并且要选
+    含名字的完整自我介绍（「我是一只黑色的小猫妖，叫罗小黑」），
+    排除「我是猫妖」这类片段式自称。
+
+    返回 None = 话题没有 identity 定义 → 调用方走安全网「我还不太懂{topic}」。
+    纯 slots 反查 + 字符串判断，不碰概率/向量（禁区见 __init__.py）。
+    """
+    if not topic and not is_self_query:
+        return None
+
+    candidates: list = []
+    for pot in garden.pots.values():
+        if pot.source_type == "internal":
+            continue
+        target_words = {"我", "小黑", "罗小黑"} if is_self_query else {topic}
+        for k in pot.network.all_keys():
+            if k.is_dormant or k.primitive != "IS":
+                continue
+            sub = pot.network.get_key(k.slots.get("subject", 0)) if k.slots.get("subject") else None
+            if sub is None or sub.primitive != "WORD":
+                continue
+            sub_name = (sub.content or "").removeprefix("词:").removeprefix("词：")
+            if sub_name in target_words:
+                candidates.append(k)
+
+    if not candidates:
+        return None
+
+    if is_self_query:
+        # 自我介绍：以「我是/我叫」开头且含名字（罗小黑）最优先
+        for k in candidates:
+            c = k.content or ""
+            if c.startswith(("我是", "我叫")) and "罗小黑" in c:
+                return c
+        # 退而求其次：以「我是/我叫」开头
+        for k in candidates:
+            c = k.content or ""
+            if c.startswith(("我是", "我叫")):
+                return c
+        return None
+
+    # 定义句：content 以主题词开头（排除「师父拿着手机…」这类主语不是 topic 的误拆句）
+    for k in candidates:
+        c = k.content or ""
+        if c.startswith(topic):
+            return c
+    return candidates[0].content if candidates[0].content else None

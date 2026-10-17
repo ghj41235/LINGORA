@@ -6,6 +6,11 @@
 
 纯符号：这里不产生任何新知识，只让某些键亮、调某些线的导电率。
 删掉本文件任何一条规则，网络不少一根线。
+
+English:
+Reference-resolution seed planning: maps pronouns/interrogatives to mechanism
+keys (SELF / MASTER / QUEST) so questions like "who are you" light up the
+right seeds. Purely symbolic — no new knowledge is created.
 """
 
 from __future__ import annotations

@@ -3,6 +3,10 @@
 
 管理所有键和电线的容器。提供增删改查、邻居查询、快照等功能。
 网络本身不负责传导——传导由 conduction.py 执行。
+
+English:
+Container managing all keys and wires: CRUD, neighbor queries and snapshots.
+Conduction itself is delegated to conduction.py.
 """
 
 from __future__ import annotations

@@ -11,6 +11,11 @@ v1.0 新增（六条路线）：
 - primitive + slots（概念依赖 CD）
 - evidence_freq + evidence_conf（NARS 证据量）
 - prediction_state（HTM 预测）
+
+English:
+The minimal storage unit of the memory network: a key holds a primitive
+plus slots (conceptual dependency), NARS evidence and HTM prediction state,
+with three-level brightness; identity comes from what it connects to.
 """
 
 from __future__ import annotations

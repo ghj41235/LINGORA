@@ -10,6 +10,11 @@
 - 脑回路简单直接
 - 表达能力有限但真诚
 - 会用"喵"、叫"师父"
+
+English:
+Personality parameters: centralized config for Luo Xiaohei's persona
+(identity, language style, address rules), read by the language module,
+main loop and conduction engine.
 """
 
 from __future__ import annotations

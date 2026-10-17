@@ -10,6 +10,11 @@ Hebbian 规则：一起亮的键 → 电线加粗。
 v1.0 新增（Copycat + HTM）：
 - relation_type + slippage_distance（概念滑移）
 - context（时序上下文，HTM 预测）
+
+English:
+The edge between two keys, with a thickness weight that governs conduction
+efficiency. Includes relation types with slippage distances (Copycat) and
+temporal context for HTM prediction; Hebbian rules thicken, decay thins.
 """
 
 from __future__ import annotations

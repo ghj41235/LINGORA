@@ -12,6 +12,11 @@
 
 资源约束：每次推理消耗能量（InferenceEnergyBudget），
 防止无限创建键。能量随对话恢复。
+
+English:
+NARS inference rules as RULE-type keys: deduction, induction and analogy
+are pattern-matched after conduction and execute actions (creating keys or
+revising evidence), bounded by an energy budget.
 """
 
 from __future__ import annotations

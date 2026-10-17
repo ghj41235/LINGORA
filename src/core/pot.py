@@ -5,6 +5,11 @@
 盆内传导规则与键盘模型完全一致。盆之间通过桥接线进行有限联想。
 
 盆的生命周期：创建 → 生长 → 可能拆分 / 合并 / 休眠。
+
+English:
+Soft-isolation container holding its own KeyNetwork instance; conduction
+inside a pot follows the keyboard model exactly, with limited cross-pot
+association via bridge wires and a lifecycle of split/merge/dormancy.
 """
 
 from __future__ import annotations

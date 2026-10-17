@@ -7,6 +7,12 @@
 v1.0: 语法键网络集成——优先从语法盆中匹配输出模式，
       硬编码模板降级为种子模式和后备方案。
 一切皆键+线：语言输出由传导驱动，不靠硬编码模板。
+
+English:
+Language: renders the bright-key landscape as Luo Xiaohei style Chinese
+output, drawing on the memory network, knowledge base and personality
+parameters. Output is conduction-driven, matching grammar-basin patterns
+first.
 """
 
 from __future__ import annotations

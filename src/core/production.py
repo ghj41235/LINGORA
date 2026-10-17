@@ -16,7 +16,12 @@
    - 不是硬编码——通过调控传导和输出参数间接实现
 
 一切皆键+线：情境键由输入特征触发，元规则键在传导中匹配条件并执行动作。
-禁区：见 src/core/__init__.py 完整清单（名称+概念+代码，永久锁定）。
+设计边界：见 src/core/__init__.py 完整清单（名称+概念+代码）。
+
+English:
+Production system for social awareness: SITUATION keys are triggered by
+input features and RULE keys match conditions to regulate output (sentence
+count, tone, proactivity) indirectly via conduction.
 """
 
 from __future__ import annotations

@@ -6,6 +6,11 @@
 
 师父的输入享有 +1 亮度特权（罗小黑信任师父）。
 匹配不到时创建短期记忆键（7 天内再触发才升级）。
+
+English:
+Input parsing: turns natural-language input into seed keys via
+segmentation, layered matching and initial brightness. The master's input
+gets a +1 brightness privilege; unmatched terms become short-term keys.
 """
 
 from __future__ import annotations

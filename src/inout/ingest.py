@@ -6,6 +6,11 @@
 
 碎片不拆成实体/属性/关系三元组——保留经历的原样。
 结构（理解）由后续对话中电线的自然生长形成。
+
+English:
+Ingestion: splits fed txt documents into experience fragments, dedups them
+and creates keys, then batch-digests them. Fragments keep the raw
+experience intact; structure grows later via wire growth in conversation.
 """
 
 from __future__ import annotations

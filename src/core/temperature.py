@@ -10,6 +10,11 @@
 下轮对话时预热这些键（降低激活阈值），话题转换时衰减。
 
 参考：Hofstadter & Mitchell (1995) Copycat
+
+English:
+Copycat-style temperature plus workspace: global temperature reflects
+confidence and controls search breadth, while the workspace pre-warms
+recently activated keys for the next turn.
 """
 
 from __future__ import annotations

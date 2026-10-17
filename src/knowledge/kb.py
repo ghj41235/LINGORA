@@ -9,6 +9,12 @@
 
 文件柜 = 工具（在房间里，不在小黑脑子里）
 记忆网络 = 大脑
+
+English:
+Knowledge base (filing cabinet): stores hard knowledge such as formulas,
+code, data, specs and references — not memories, conversations or people,
+which belong to the memory network. Xiaohei files entries himself or on
+the master's instruction.
 """
 
 from __future__ import annotations

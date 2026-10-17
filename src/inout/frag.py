@@ -20,7 +20,13 @@ cd_engine 的 17 种生活句式匹配不了世界知识句式（X能Y / X是Y�
     猫 不是 植物 → 词猫↔词植物 = opposite-of（-1）
 原语键↔词键的线固定 part-of（+1）。
 
-纯符号：不调 LLM，不碰禁区。只把结构化的碎片建成键和线。
+纯符号：不调 LLM，不越设计边界。只把结构化的碎片建成键和线。
+
+English:
+.frag ingestion: hand-written knowledge triples (subject relation object)
+go straight into the network as keys and wires, bypassing cd_engine's
+natural-language decomposition. Each triple becomes two word keys, one
+primitive key with named slots, and wires with typed polarity (-1/0/+1).
 """
 
 from __future__ import annotations
@@ -328,7 +334,7 @@ def _create_key(
 
 
 # ═══════════════════════════════════════════════
-# 备课查重（脑外，纯符号——不用向量、不碰禁区）
+# 备课查重（脑外，纯符号——不用向量、不越设计边界）
 # ═══════════════════════════════════════════════
 
 def _term_similarity(a: str, b: str) -> float:

@@ -15,7 +15,12 @@
 - 概念键 ↔ 语法键之间的电线 → "这个格局产生这个句子"
 
 一切皆键+线：语言输出由传导驱动，不靠硬编码模板。
-禁区：见 src/core/__init__.py 完整清单（名称+概念+代码，永久锁定）。
+设计边界：见 src/core/__init__.py 完整清单（名称+概念+代码）。
+
+English:
+Grammar key network for language output: activation patterns act as trigger
+signatures matched against grammar output patterns (stored in a dedicated
+grammar pot), producing sentence templates whose slots are filled in.
 """
 
 from __future__ import annotations

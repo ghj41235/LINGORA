@@ -9,6 +9,11 @@
 - 管理桥接线（创建 / 触发 / 消化 / 衰减）
 - 跨盆传导（三轮流程：盆内传导 → 桥接评估 → 浅跳）
 - 投喂路由（按主题签名选择目标盆）
+
+English:
+Top-level container: a collection of pots plus a cross-pot bridge table,
+managing pot lifecycle, bridge wires, cross-pot conduction and topic-based
+feeding routing.
 """
 
 from __future__ import annotations

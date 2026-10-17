@@ -10,6 +10,11 @@
 
 小黑自己往桌上写东西不需要师父管。
 师父可以用指令看一眼桌上有什么、帮小黑把没用的扔掉。
+
+English:
+Desk: Xiaohei's worktable of temporary scratch notes (drafts, half-formed
+ideas, reading notes), distinct from the filing cabinet. Xiaohei writes
+freely; the master can inspect the desk or clear unused notes.
 """
 
 from __future__ import annotations

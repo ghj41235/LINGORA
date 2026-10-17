@@ -11,6 +11,12 @@
     python -m src.runtime.main
     或从项目根目录：
     python main.py
+
+English:
+Main loop (v1.0, third generation): the system's brain — wires input,
+conduction, digestion, language and storage together so Luo Xiaohei lives
+in the terminal. Six routes: CD primitives, NARS evidence, HTM prediction,
+Copycat temperature, CBR cases, grammar key network.
 """
 
 from __future__ import annotations

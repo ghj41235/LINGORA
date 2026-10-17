@@ -21,7 +21,12 @@ act 枚举：
 - ostension     光秃单概念（师父只给一个实义词）
 - assert        述：默认陈述
 
-禁区：见 src/core/__init__.py 完整清单（名称+概念+代码，永久锁定）。
+设计边界：见 src/core/__init__.py 完整清单（名称+概念+代码）。
+
+English:
+Illocutionary-force frame: before the brightness winner layer, symbolic
+production rules identify the act and topic to decide which grammar paths
+are eligible to answer, plus a safety net for unanswered topics.
 """
 
 from __future__ import annotations
@@ -185,7 +190,7 @@ def retrieve_identity(garden, topic: str, is_self_query: bool = False) -> str | 
     排除「我是猫妖」这类片段式自称。
 
     返回 None = 话题没有 identity 定义 → 调用方走安全网「我还不太懂{topic}」。
-    纯 slots 反查 + 字符串判断，不碰概率/向量（禁区见 __init__.py）。
+    纯 slots 反查 + 字符串判断，不碰概率/向量（设计边界见 __init__.py）。
     """
     if not topic and not is_self_query:
         return None

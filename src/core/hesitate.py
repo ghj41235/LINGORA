@@ -7,6 +7,11 @@
 
 罗小黑模式下：脑回路简单，不太容易犹豫。
 真犹豫时表现为"单纯困惑"，不纠结分析。
+
+English:
+Hesitation detection: when the lit-key pattern oscillates between directions
+and amplitude fails to converge, the system reports hesitation rather than
+continuing to think.
 """
 
 from __future__ import annotations

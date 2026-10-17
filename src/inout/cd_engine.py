@@ -11,8 +11,14 @@
 4. 模式匹配 → 槽位填充（提取 X/Y/Z 等成分）
 5. 槽位填充 → 创建概念键簇（原语键 + 词键 + 连接线）
 
-不依赖任何 LLM、句法分析器、外部模型。禁区见 src/core/__init__.py。
+不依赖任何 LLM、句法分析器、外部模型。设计边界见 src/core/__init__.py。
 拆解模式本身以 PATTERN 键的形式存储在语言盆中。
+
+English:
+Splits input text into sentences, tokenizes with jieba, matches CD
+patterns to fill slots, and creates concept key clusters (primitive keys
++ word keys + wires). Does not use any LLM, parser or external model;
+patterns live as PATTERN keys.
 """
 
 from __future__ import annotations

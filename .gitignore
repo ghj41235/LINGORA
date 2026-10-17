@@ -14,3 +14,16 @@ luoxiaohei.luoxiaohei.backup_*
 Thumbs.db
 .idea/
 .vscode/
+
+# 种子数据（实验定稿后再上传）
+data/
+
+# 环境虚拟环境（由 setup 脚本生成，不进版本控制）
+environment/.venv/
+
+# 本地诊断/探针脚本（不发布）
+_diag*.py
+_probe*.py
+
+# 本地纪念存档（不发布）
+archive/

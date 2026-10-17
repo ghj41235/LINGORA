@@ -20,6 +20,11 @@ test_evidence.py —— src/core/evidence.py 单元测试
    隐患（隐患 4，以及本文件顺带记录的其他观察），保持原样不动。
 （隐患 5 是 docstring 措辞错误，已直接在 evidence.py 里更正，对应测试改为普通用例。）
 ──────────────────────────────────────────────────────────────
+
+English:
+Unit tests for src/core/evidence.py: pure functions truth_expectation and
+revise_evidence, plus update_evidence_after_conduction tested via lightweight
+fakes; regression tests lock fixed bugs, hazard tests document known ones.
 """
 
 from __future__ import annotations

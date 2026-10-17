@@ -20,7 +20,12 @@
    - 长期不用的案例 → 休眠
 
 一切皆键+线：案例是激活模式的记忆，不是独立的推理引擎。
-禁区：见 src/core/__init__.py 完整清单（名称+概念+代码，永久锁定）。
+设计边界：见 src/core/__init__.py 完整清单（名称+概念+代码）。
+
+English:
+Case-Based Reasoning mapped onto the key network: a case is an activation
+snapshot; matching a trigger pattern at low temperature loads the snapshot
+directly (skipping conduction) for fast, energy-saving responses.
 """
 
 from __future__ import annotations

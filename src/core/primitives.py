@@ -9,6 +9,11 @@
 
 参考：Schank (1972) Conceptual Dependency Theory
       但做了大幅简化，去掉不必要的抽象层级。
+
+English:
+Conceptual primitives — the atomic meaning units (perception, existence,
+action, relation, quantity) into which fed text is decomposed; simplified
+from Schank's Conceptual Dependency theory.
 """
 
 from __future__ import annotations

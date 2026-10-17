@@ -15,7 +15,12 @@
    - 独处模式：自发传导（workspace 残留为种子），注意力锁防内耗
 
 一切皆键+线：时序记忆存在电线里，预测由电线驱动，注意力由模式切换驱动。
-禁区：见 src/core/__init__.py 完整清单（名称+概念+代码，永久锁定）。
+设计边界：见 src/core/__init__.py 完整清单（名称+概念+代码）。
+
+English:
+HTM temporal memory, prediction and attention: wire contexts record
+co-occurrence, prediction_state is a three-step state machine driven by
+those contexts, and attention focus switches between dialogue and solitude.
 """
 
 from __future__ import annotations

@@ -17,6 +17,12 @@ truth = (frequency, confidence)
 - 种子键（师父提到的）→ 强正面证据
 - 桥接触发的键 → 跨域正面证据
 - 犹豫/方向切换 → 负面证据
+
+English:
+NARS evidence-based truth: each key's truth value is (frequency, confidence)
+derived from its activation history, with expectation combining both into
+a single belief score. Sources include seeds, bridge-triggered keys and
+negative evidence from hesitation/direction changes.
 """
 
 from __future__ import annotations

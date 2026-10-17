@@ -5,6 +5,11 @@
 遗忘 = 电线衰减 + 键休眠：长期不用的键压缩内容但不删除。
 
 消化让关联变强，遗忘防止无限膨胀。两者对抗，网络自然生长。
+
+English:
+Digestion is Hebbian learning — wires between co-activated keys thicken —
+balanced by forgetting (wire decay plus key dormancy), so the network
+grows naturally without unbounded expansion.
 """
 
 from __future__ import annotations

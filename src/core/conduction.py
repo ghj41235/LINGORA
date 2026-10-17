@@ -10,6 +10,11 @@
 内层：传导迭代（iterations）——每轮内的扩散+衰减+跳档
 
 不搜索、不匹配、不预测——只是电流顺着电线跑，跑到跑不动为止。
+
+English:
+The "thinking" process: seed keys light up, activation spreads along wires
+with hop decay, focus weighting and re-seeding across cycles until the
+pattern converges. No search, no matching, no prediction.
 """
 
 from __future__ import annotations

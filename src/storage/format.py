@@ -6,6 +6,11 @@
 
 一个 .luoxiaohei 文件 = 一个完整的 AI 生命记录。
 包含：键网络 + 知识库 + 统计 + 时间戳。
+
+English:
+Storage format: reads and writes .luoxiaohei files (JSON during the
+prototype phase, binary in the later Unikernel stage). One file is a
+complete AI life record: key network + knowledge base + stats + timestamps.
 """
 
 from __future__ import annotations
